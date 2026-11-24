@@ -9,6 +9,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
+from log_results import log_safe
 
 LABELS = ["Rest", "Stress", "Activity"]
 LABEL_TO_IDX = {label: i for i, label in enumerate(LABELS)}
@@ -240,6 +241,17 @@ def main():
     out_onnx = pathlib.Path("submission_model.onnx")
     out_onnx.write_bytes(onnx_model.SerializeToString())
     print(f"Saved updated ONNX model to {out_onnx} ({out_onnx.stat().st_size / 1024:.1f} KB)")
+
+    onnx_size_mb = out_onnx.stat().st_size / (1024 * 1024)
+
+    summary = "\n".join([
+        f"Features: {X.shape[1]} | Samples: {len(y)} | Subjects: {len(np.unique(groups))}",
+        f"Raw OOF Macro-F1: {macro_f1:.4f} ({macro_f1 * 80:.2f}/80)",
+        f"Tuned OOF Macro-F1: {best_f1:.4f} ({best_f1 * 80:.2f}/80) | Weights: {best_weights.tolist()}",
+        f"ONNX size: {onnx_size_mb:.2f} MB ({out_onnx.stat().st_size / 1024:.1f} KB)",
+    ])
+    print(summary)
+    log_safe("train_model", summary)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ from sklearn.metrics import (
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from log_results import log_safe
 
 import submission_model
 import train_model
@@ -71,17 +72,16 @@ def build_dataset_with_protocol(root_dir: pathlib.Path, win_sec: int = 10):
         np.concatenate(proto_list),
     )
 
-
 def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
     onnx_path = pathlib.Path("submission_model.onnx")
     if not onnx_path.exists():
         print("\n[Speed Check] Skipped: submission_model.onnx not found.")
-        return
+        return None, None
 
     sample_files = sorted((root_dir / "data").rglob("*.parquet"))[:3]
     if not sample_files:
         print("\n[Speed Check] Skipped: no sample parquet files found.")
-        return
+        return None, None
 
     dfs = [pd.read_parquet(p)[train_model.SENSOR_COLS] for p in sample_files]
     model = submission_model.get_model()
@@ -103,7 +103,7 @@ def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
         f"Runs: {n_runs} | MET: {met:.4f} s | Min: {min(times):.4f} s | "
         f"Max: {max(times):.4f} s | Est. Speed Score: {speed_score:.2f} / 20.00"
     )
-
+    return met, speed_score
 
 def main():
     root_dir = pathlib.Path("TechArena-Finland-2026")
@@ -168,7 +168,51 @@ def main():
     for subj, n_w, s_f1 in subj_rows[:10]:
         print(f"Subject {subj:6s} | windows={n_w:4d} | Macro-F1={s_f1:.4f}")
 
-    benchmark_submission_model(root_dir, n_runs=20)
+    met_sec, speed_pts = benchmark_submission_model(root_dir, n_runs=20)
+
+    onnx_path = pathlib.Path("submission_model.onnx")
+    if onnx_path.exists():
+        import onnxruntime as ort
+
+        ref_pipe = Pipeline(
+            [
+                ("imputer", SimpleImputer(strategy="median")),
+                (
+                    "rf",
+                    RandomForestClassifier(
+                        n_estimators=200,
+                        max_depth=18,
+                        min_samples_leaf=2,
+                        class_weight="balanced_subsample",
+                        random_state=42,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        )
+        ref_pipe.fit(X, y)
+        sample_x = X[: min(200, len(X))].astype(np.float32)
+        sk_probs = ref_pipe.predict_proba(sample_x)
+
+        sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
+        in_name = sess.get_inputs()[0].name
+        ort_out = sess.run(None, {in_name: sample_x})
+        ort_probs = np.asarray(ort_out[1], dtype=np.float32)
+        max_diff = float(np.max(np.abs(sk_probs - ort_probs)))
+    else:
+        max_diff = float("nan")
+
+    met_str = f"{met_sec:.4f} s" if met_sec is not None else "N/A"
+    spd_str = f"{speed_pts:.2f}/20" if speed_pts is not None else "N/A"
+    est_total = qual_score + (speed_pts if speed_pts is not None else 0.0)
+
+    audit_summary = "\n".join([
+        f"Max prob diff (sklearn vs ONNX): {max_diff:.6e}",
+        f"MET: {met_str} | Speed score: {spd_str}",
+        f"Macro-F1: {macro_f1:.4f} | Quality score: {qual_score:.2f}/80 | Est. Total: {est_total:.2f}/100",
+    ])
+    print(audit_summary)
+    log_safe("metrics_audit", audit_summary)
 
 
 if __name__ == "__main__":
