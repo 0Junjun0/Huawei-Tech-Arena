@@ -1,0 +1,11 @@
+{
+  "n_parquet_files": 85,
+  "unique_subjects": 35,
+  "protocols": {
+    "STRESS": 31,
+    "AEROBIC": 27,
+    "ANAEROBIC": 27
+  },
+  "total_rows": 10126438,
+  "total_approx_10s_windows": 15964
+}
