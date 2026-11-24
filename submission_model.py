@@ -12,7 +12,6 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 LABELS = ["Rest", "Stress", "Activity"]
 SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
 
-
 def _compute_window_features(
     df: pd.DataFrame, win_sec: int = 10, ctx_sec: int = 40, long_ctx_sec: int = 60
 ) -> tuple[pd.DatetimeIndex, np.ndarray]:
@@ -55,6 +54,17 @@ def _compute_window_features(
         index=mean_df.index,
     )
 
+    ibi_dt_diff_series = work["IBI_dt"].diff().abs().resample(rule).mean().fillna(0.0)
+    extra_phys_df = pd.DataFrame(
+        {
+            "HR_std_ctx40": mean_df["HR"].rolling(ctx_periods, min_periods=1).std().fillna(0.0),
+            "EDA_std_ctx40": mean_df["EDA"].rolling(ctx_periods, min_periods=1).std().fillna(0.0),
+            "IBI_dt_abs_diff": ibi_dt_diff_series,
+            "Temp_diff_ctx40": (mean_df["Temperature"] - ctx_mean_df["Temperature"]).fillna(0.0),
+        },
+        index=mean_df.index,
+    )
+
     feat_df = pd.concat(
         [
             mean_df.add_suffix("_mean"),
@@ -66,11 +76,11 @@ def _compute_window_features(
             diff_ctx_df.add_suffix("_diff_ctx40"),
             eda_swing_df,
             hr_eda_diff_df,
+            extra_phys_df,
         ],
         axis=1,
     )
     return feat_df.index, feat_df.to_numpy(dtype=np.float32)
-
 
 class TechArenaModel(ADM_Base):
     def __init__(self, onnx_file: pathlib.Path) -> None:
@@ -98,7 +108,7 @@ class TechArenaModel(ADM_Base):
                 probs = np.asarray(raw_probs, dtype=np.float32)
 
             if probs.ndim == 2 and probs.shape[1] == len(LABELS):
-                class_weights = np.array([0.9, 1.35, 0.9], dtype=np.float32)
+                class_weights = np.array([0.95, 1.8, 0.85], dtype=np.float32)
                 pred_ids = np.argmax(probs * class_weights, axis=-1)
             else:
                 pred_ids = np.asarray(ort_outs[0]).reshape(-1).astype(int)

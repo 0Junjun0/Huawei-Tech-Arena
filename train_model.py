@@ -1,10 +1,10 @@
 import pathlib
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import classification_report, f1_score
 from sklearn.model_selection import GroupKFold
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from skl2onnx import convert_sklearn
@@ -31,6 +31,7 @@ def map_phase_to_activity(phase_val) -> str | None:
     if low in ACTIVITY_PHASES or "rpm" in low:
         return "Activity"
     return None
+
 
 def extract_window_features(
     df: pd.DataFrame, win_sec: int = 10, ctx_sec: int = 40, long_ctx_sec: int = 60
@@ -74,6 +75,17 @@ def extract_window_features(
         index=mean_df.index,
     )
 
+    ibi_dt_diff_series = work["IBI_dt"].diff().abs().resample(rule).mean().fillna(0.0)
+    extra_phys_df = pd.DataFrame(
+        {
+            "HR_std_ctx40": mean_df["HR"].rolling(ctx_periods, min_periods=1).std().fillna(0.0),
+            "EDA_std_ctx40": mean_df["EDA"].rolling(ctx_periods, min_periods=1).std().fillna(0.0),
+            "IBI_dt_abs_diff": ibi_dt_diff_series,
+            "Temp_diff_ctx40": (mean_df["Temperature"] - ctx_mean_df["Temperature"]).fillna(0.0),
+        },
+        index=mean_df.index,
+    )
+
     feat_df = pd.concat(
         [
             mean_df.add_suffix("_mean"),
@@ -85,10 +97,12 @@ def extract_window_features(
             diff_ctx_df.add_suffix("_diff_ctx40"),
             eda_swing_df,
             hr_eda_diff_df,
+            extra_phys_df,
         ],
         axis=1,
     )
     return feat_df.index, feat_df.to_numpy(dtype=np.float32)
+
 
 def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
     X_list, y_list, groups_list = [], [], []
@@ -105,7 +119,7 @@ def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
             if col not in df.columns:
                 df[col] = np.nan
 
-        win_idx, X_win = extract_window_features(df, win_sec=win_sec, ctx_sec=30)
+        win_idx, X_win = extract_window_features(df, win_sec=win_sec)
 
         if "Phase" not in df.columns:
             continue
@@ -134,6 +148,7 @@ def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
 
     return np.vstack(X_list), np.concatenate(y_list), np.concatenate(groups_list)
 
+
 def main():
     root_dir = pathlib.Path("TechArena-Finland-2026")
     X, y, groups = build_dataset(root_dir, win_sec=10)
@@ -149,19 +164,21 @@ def main():
             [
                 ("imputer", SimpleImputer(strategy="median")),
                 ("scaler", StandardScaler()),
-                ("rf", RandomForestClassifier(
-                    n_estimators=200,
-                    max_depth=18,
-                    min_samples_leaf=2,
-                    class_weight="balanced_subsample",
-                    random_state=42 + fold,
-                    n_jobs=-1,
-                )),
+                (
+                    "rf",
+                    RandomForestClassifier(
+                        n_estimators=200,
+                        max_depth=18,
+                        min_samples_leaf=2,
+                        class_weight="balanced_subsample",
+                        random_state=42 + fold,
+                        n_jobs=-1,
+                    ),
+                ),
             ]
         )
         clf.fit(X[tr_idx], y[tr_idx])
 
-        # Save validation probabilities in [Rest, Stress, Activity] column order
         raw_probs = clf.predict_proba(X[va_idx])
         mapped_probs = np.zeros((len(va_idx), 3), dtype=np.float32)
         for col_idx, cls_val in enumerate(clf.classes_):
@@ -170,21 +187,20 @@ def main():
         oof_probs[va_idx] = mapped_probs
         oof_preds[va_idx] = np.argmax(mapped_probs, axis=1)
 
-    macro_f1 = f1_score(y, oof_preds, average="macro")
+    macro_f1 = f1_score(y, oof_preds, average="macro", zero_division=0)
     print(f"OOF Macro-F1: {macro_f1:.4f} | Estimated Challenge Score: {macro_f1 * 80:.2f} / 80")
     print("\nPer-class breakdown:")
-    print(classification_report(y, oof_preds, target_names=LABELS, digits=4))
+    print(classification_report(y, oof_preds, target_names=LABELS, digits=4, zero_division=0))
 
-    # Search for class probability multipliers that maximize OOF Macro-F1
     best_f1 = macro_f1
     best_weights = np.array([1.0, 1.0, 1.0], dtype=np.float32)
 
-    for w_stress in np.arange(0.70, 1.35, 0.05):
-        for w_rest in [0.90, 0.95, 1.00, 1.05]:
-            for w_act in [0.90, 0.95, 1.00, 1.05]:
+    for w_stress in np.arange(1.00, 1.85, 0.10):
+        for w_rest in [0.95, 1.00, 1.05]:
+            for w_act in [0.85, 0.90, 0.95, 1.00]:
                 weights = np.array([w_rest, w_stress, w_act], dtype=np.float32)
                 cand_preds = np.argmax(oof_probs * weights, axis=1)
-                cand_f1 = f1_score(y, cand_preds, average="macro")
+                cand_f1 = f1_score(y, cand_preds, average="macro", zero_division=0)
                 if cand_f1 > best_f1:
                     best_f1 = cand_f1
                     best_weights = weights
@@ -198,23 +214,33 @@ def main():
     final_model = Pipeline(
         [
             ("imputer", SimpleImputer(strategy="median")),
-            ("rf", RandomForestClassifier(
-                n_estimators=200,
-                max_depth=18,
-                min_samples_leaf=2,
-                class_weight="balanced_subsample",
-                random_state=42,
-                n_jobs=-1,
-            )),
+            (
+                "rf",
+                RandomForestClassifier(
+                    n_estimators=200,
+                    max_depth=18,
+                    min_samples_leaf=2,
+                    class_weight="balanced_subsample",
+                    random_state=42,
+                    n_jobs=-1,
+                ),
+            ),
         ]
     )
     final_model.fit(X, y)
 
+    rf_step = final_model.named_steps["rf"]
     initial_type = [("float_input", FloatTensorType([None, X.shape[1]]))]
-    onnx_model = convert_sklearn(final_model, initial_types=initial_type, target_opset=15)
+    onnx_model = convert_sklearn(
+        final_model,
+        initial_types=initial_type,
+        options={id(rf_step): {"zipmap": False}},
+        target_opset=15,
+    )
     out_onnx = pathlib.Path("submission_model.onnx")
     out_onnx.write_bytes(onnx_model.SerializeToString())
     print(f"Saved updated ONNX model to {out_onnx} ({out_onnx.stat().st_size / 1024:.1f} KB)")
+
 
 if __name__ == "__main__":
     main()
