@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+TechArena-Finland-2026/
+*.parquet
+submission.zip
+.DS_Store
