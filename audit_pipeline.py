@@ -12,6 +12,7 @@ import pathlib
 import sys
 import tempfile
 import time
+import tracemalloc
 import zipfile
 import numpy as np
 import pandas as pd
@@ -195,6 +196,46 @@ def run_end_to_end_tests_and_benchmark(model) -> None:
     )
     print(f"Estimated Speed Score (0.3s cap): {speed_pts:.2f} / 20.00")
 
+def check_validation_and_efficiency(model) -> None:
+    print("\n=== 5. Validation & Single-Core Efficiency Gate ===")
+    data_dir = DATA_KIT_DIR / "data" if (DATA_KIT_DIR / "data").exists() else WORK_DIR / "data"
+    parquet_files = sorted(data_dir.rglob("*.parquet"))
+    assert parquet_files, "No .parquet files found for efficiency check"
+
+    sample_dfs = [pd.read_parquet(p) for p in parquet_files[:5]]
+    _ = model.run(sample_dfs[0])  # warm-up
+
+    # 1. Measure 50-run latency first without tracemalloc overhead
+    latencies = []
+    for i in range(50):
+        df_in = sample_dfs[i % len(sample_dfs)]
+        t0 = time.perf_counter()
+        out = model.run(df_in)
+        latencies.append(time.perf_counter() - t0)
+        validate_output_df(out, df_in)
+
+    # 2. Measure peak traced memory separately
+    tracemalloc.start()
+    for i in range(50):
+        df_in = sample_dfs[i % len(sample_dfs)]
+        out = model.run(df_in)
+        validate_output_df(out, df_in)
+    _, peak_bytes = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    arr = np.asarray(latencies, dtype=np.float64)
+    met = float(np.mean(arr))
+    p95 = float(np.percentile(arr, 95))
+    peak_mb = peak_bytes / (1024.0 * 1024.0)
+    onnx_path = WORK_DIR / "submission_model.onnx"
+    onnx_mb = onnx_path.stat().st_size / (1024.0 * 1024.0) if onnx_path.exists() else 0.0
+    speed_pts = max(0.0, min(20.0, (1.0 - met / 0.3) * 20.0))
+
+    print(f"50-Run MET: {met:.4f} s | P95: {p95:.4f} s | Peak RAM: {peak_mb:.2f} MB | ONNX: {onnx_mb:.2f} MB")
+    print(f"Speed Score: {speed_pts:.2f} / 20.00")
+    assert met < 0.30, f"MET {met:.4f} s >= 0.30 s threshold"
+    assert peak_mb <= 4096.0, f"Peak RAM {peak_mb:.2f} MB > 4096 MB limit"
+    assert onnx_mb <= 50.0, f"ONNX size {onnx_mb:.2f} MB > 50 MB limit"
 
 def main() -> None:
     zip_path = check_files_and_zip()
@@ -202,8 +243,8 @@ def main() -> None:
     base_path = resolve_base_class_path()
     model = check_package_load_and_adm_base(zip_path, base_path)
     run_end_to_end_tests_and_benchmark(model)
+    check_validation_and_efficiency(model)
     print("\nALL AUDIT & END-TO-END CHECKS PASSED.")
-
 
 if __name__ == "__main__":
     main()

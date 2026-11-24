@@ -2,23 +2,37 @@ import datetime
 import pathlib
 
 
-def append_experiment_note(
-    run_name: str,
-    summary_text: str,
-    notes_file: pathlib.Path = pathlib.Path("experiment_notes.md"),
-) -> None:
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def _clean_summary_text(summary_text: str) -> str:
     clean_lines = [
         line
         for line in summary_text.splitlines()
         if "'nodes_values'" not in line and "np.uint32(" not in line
     ]
-    cleaned_body = "\n".join(clean_lines).strip()
+    return "\n".join(clean_lines).strip()
 
-    entry = (
-        f"\n## {timestamp} — {run_name}\n\n"
-        f"```text\n{cleaned_body}\n```\n"
-    )
+
+def append_experiment_note(
+    run_name: str,
+    summary_text: str,
+    notes_file: pathlib.Path = pathlib.Path("experiment_notes.md"),
+    as_markdown: bool = False,
+    ensure_submission_model_ref: bool = True,
+) -> None:
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cleaned_body = _clean_summary_text(summary_text)
+
+    if ensure_submission_model_ref and "submission_model" not in cleaned_body:
+        cleaned_body += (
+            "\n- **Submission model:** `submission_model.py` + `submission_model.onnx`"
+        )
+
+    if as_markdown:
+        entry = f"\n<!-- Logged: {timestamp} ({run_name}) -->\n{cleaned_body}\n"
+    else:
+        entry = (
+            f"\n## {timestamp} — {run_name}\n\n"
+            f"```text\n{cleaned_body}\n```\n"
+        )
 
     if not notes_file.exists():
         header = "# Huawei Tech Arena 2026 — Experiment Notes\n"
@@ -34,12 +48,16 @@ def log_safe(
     run_name: str,
     summary_text: str,
     notes_file: pathlib.Path = pathlib.Path("experiment_notes.md"),
+    as_markdown: bool = False,
+    ensure_submission_model_ref: bool = True,
 ) -> None:
     try:
         append_experiment_note(
             run_name=run_name,
             summary_text=summary_text,
             notes_file=notes_file,
+            as_markdown=as_markdown,
+            ensure_submission_model_ref=ensure_submission_model_ref,
         )
     except Exception as exc:
         print(f"[warning] Could not write to {notes_file}: {exc}")
@@ -49,5 +67,6 @@ if __name__ == "__main__":
     import sys
 
     label = sys.argv[1] if len(sys.argv) > 1 else "manual-run"
+    md_mode = "--md" in sys.argv[2:]
     pasted = sys.stdin.read()
-    append_experiment_note(label, pasted)
+    append_experiment_note(label, pasted, as_markdown=md_mode)
