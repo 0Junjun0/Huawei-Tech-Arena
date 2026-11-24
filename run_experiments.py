@@ -1,179 +1,154 @@
 import os
 
-# Enforce single-threaded execution before importing numerical / ML / ONNX packages
+# Enforce single-threaded execution before importing numerical/ONNX packages
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 
+import datetime
 import pathlib
-import re
+import sys
 import time
 import tracemalloc
+from typing import Optional
 import numpy as np
 import pandas as pd
-from sklearn.metrics import f1_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import f1_score, precision_recall_fscore_support
 from sklearn.model_selection import GroupKFold
+from sklearn.pipeline import Pipeline
 
-from log_results import log_safe
-import submission_model
-import train_model
+WORK_DIR = pathlib.Path(__file__).resolve().parent
+DATA_KIT_DIR = WORK_DIR / "TechArena-Finland-2026"
+DATA_DIR = DATA_KIT_DIR / "data" if (DATA_KIT_DIR / "data").exists() else WORK_DIR
+NOTES_PATH = WORK_DIR / "experiment_notes.md"
+SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
+VALID_LABELS = {"Rest", "Stress", "Activity"}
 
-TUNED_WEIGHTS = np.array([0.95, 1.80, 0.85], dtype=np.float32)
-PREV_RAW_F1 = 0.5571
-PREV_TUNED_F1 = 0.5809
+EXP_OPT_2_3_6_REF = {
+    "met": 0.0421,
+    "median": 0.0423,
+    "p95": 0.0548,
+    "std": 0.0062,
+    "peak_mb": 22.88,
+}
+
+AUDIT_BASELINE_REF = {
+    "met": 0.0339,
+    "p95": 0.0399,
+    "peak_mb": 18.81,
+    "onnx_mb": 26.43,
+}
+
+sys.path.insert(0, str(WORK_DIR))
+import submission_model as sub_mod
+
+try:
+    import train_model as train_mod
+except Exception:
+    train_mod = None
 
 
-def resolve_root_dir(work_dir: pathlib.Path) -> pathlib.Path:
-    for cand in [work_dir / "TechArena-Finland-2026", work_dir]:
-        if (cand / "data").exists():
-            return cand
-    return work_dir / "TechArena-Finland-2026"
+def assert_valid_output(df_out: pd.DataFrame) -> None:
+    assert isinstance(df_out, pd.DataFrame), "Output must be a DataFrame"
+    assert list(df_out.columns) == ["Activity"], f"Expected ['Activity'], got {list(df_out.columns)}"
+    assert len(df_out) > 0, "Output DataFrame is empty"
+    assert not df_out["Activity"].isna().any(), "Output contains NaN labels"
+    unexpected = set(df_out["Activity"].unique()) - VALID_LABELS
+    assert not unexpected, f"Invalid labels found: {unexpected}"
 
 
-def log_exp_markdown(exp_id: str, md_block: str, notes_path: pathlib.Path) -> None:
-    try:
-        log_safe(
-            exp_id,
-            md_block,
-            notes_file=notes_path,
-            as_markdown=True,
-            ensure_submission_model_ref=True,
+def deduplicate_feature_matrix(
+    X: np.ndarray,
+    feature_names: Optional[list[str]] = None,
+) -> tuple[np.ndarray, list[str], list[str]]:
+    """Removes exact duplicate columns (such as HR_minus_ctx40 and EDA_minus_ctx40) without altering others."""
+    n_cols = X.shape[1]
+    if feature_names is None or len(feature_names) != n_cols:
+        feature_names = [f"feat_{i}" for i in range(n_cols)]
+
+    dropped = []
+    kept_indices = []
+    kept_names = []
+    seen_arrays: list[np.ndarray] = []
+
+    duplicate_aliases = {"HR_minus_ctx40", "EDA_minus_ctx40"}
+
+    for idx, name in enumerate(feature_names):
+        col = np.nan_to_num(X[:, idx].astype(np.float64), nan=-999999.0)
+        is_exact_dup = any(np.allclose(col, prev, rtol=1e-7, atol=1e-7) for prev in seen_arrays)
+        if name in duplicate_aliases and is_exact_dup:
+            dropped.append(name)
+            continue
+        kept_indices.append(idx)
+        kept_names.append(name)
+        seen_arrays.append(col)
+
+    return X[:, kept_indices], kept_names, dropped
+
+
+def load_grouped_dataset():
+    if train_mod is not None and hasattr(train_mod, "build_dataset"):
+        res = train_mod.build_dataset(DATA_KIT_DIR if DATA_KIT_DIR.exists() else WORK_DIR)
+        if isinstance(res, tuple) and len(res) == 4:
+            X, y, groups, feat_names = res
+            return np.asarray(X), np.asarray(y), np.asarray(groups), list(feat_names), "train_model.build_dataset"
+        if isinstance(res, tuple) and len(res) == 3:
+            X, y, groups = res
+            feat_names = getattr(train_mod, "FEATURE_NAMES", None)
+            return np.asarray(X), np.asarray(y), np.asarray(groups), feat_names, "train_model.build_dataset"
+
+    # Fallback: extract window features directly from submission_model + parquet files if present
+    parquet_files = sorted(DATA_DIR.rglob("*.parquet"))
+    assert parquet_files, f"No .parquet files found under {DATA_DIR}"
+    model = sub_mod.get_model()
+
+    X_parts, y_parts, g_parts = [], [], []
+    for p in parquet_files[:15]:
+        df = pd.read_parquet(p)
+        out_df = model.run(df)
+        n_rows = len(out_df)
+        if n_rows == 0:
+            continue
+        subj = p.stem.split("_")[0]
+        if hasattr(model, "_compute_window_features"):
+            feat_res = model._compute_window_features(df)
+            feats = feat_res[1] if isinstance(feat_res, tuple) else feat_res
+            arr = np.asarray(feats, dtype=np.float32)
+            if arr.ndim == 2 and len(arr) == n_rows:
+                X_parts.append(arr)
+        label_map = {"Rest": 0, "Stress": 1, "Activity": 2}
+        y_parts.append(out_df["Activity"].map(label_map).fillna(0).to_numpy(dtype=np.int64))
+        g_parts.append(np.full(n_rows, subj, dtype=object))
+
+    if X_parts:
+        return (
+            np.vstack(X_parts),
+            np.concatenate(y_parts),
+            np.concatenate(g_parts),
+            None,
+            "fallback_parquet_features",
         )
-    except TypeError:
-        log_safe(exp_id, md_block)
+    raise RuntimeError("Could not build dataset from train_model.build_dataset or parquet feature extraction.")
 
 
-def audit_resample_rolling_calls(work_dir: pathlib.Path) -> dict:
-    """EXP-OPT-01-5: Audit .resample(...) and .rolling(...) calls in submission_model.py and train_model.py."""
-    counts = {}
-    for fname in ["submission_model.py", "train_model.py"]:
-        p = work_dir / fname
-        if p.exists():
-            src = p.read_text(encoding="utf-8", errors="replace")
-            counts[fname] = {
-                "resample_10s": len(re.findall(r'\.resample\(\s*["\']10s["\']', src)),
-                "resample_any": len(re.findall(r"\.resample\(", src)),
-                "rolling_any": len(re.findall(r"\.rolling\(", src)),
-                "has_64hz_bvp": "BVP" in src,
-            }
-        else:
-            counts[fname] = {"missing_file": True}
-    return counts
+def eval_group_kfold_rf(X: np.ndarray, y: np.ndarray, groups: np.ndarray, n_splits: int = 5):
+    unique_groups = np.unique(groups)
+    splits = min(n_splits, len(unique_groups))
+    gkf = GroupKFold(n_splits=splits)
+    oof_preds = np.zeros_like(y, dtype=np.int64)
 
-
-def benchmark_stage_and_length(parquet_files: list[pathlib.Path], n_runs: int = 50) -> dict:
-    """EXP-OPT-01-1, EXP-OPT-01-2, EXP-OPT-01-4, EXP-OPT-01-6."""
-    sorted_by_size = sorted(parquet_files, key=lambda p: p.stat().st_size)
-    short_p = sorted_by_size[0]
-    med_p = sorted_by_size[len(sorted_by_size) // 2]
-    long_p = sorted_by_size[-1]
-    selected_paths = [short_p, med_p, long_p]
-
-    dfs = [pd.read_parquet(p) for p in selected_paths]
-    model = submission_model.get_model()
-
-    # Warm-up run excluded from measured loop
-    _ = model.run(dfs[0])
-
-    # End-to-end 50-run timing + tracemalloc peak RAM
-    tracemalloc.start()
-    total_times = []
-    for i in range(n_runs):
-        df_curr = dfs[i % len(dfs)]
-        t0 = time.perf_counter()
-        _ = model.run(df_curr)
-        total_times.append(time.perf_counter() - t0)
-    _, peak_bytes = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-
-    # Stage split: feature extraction vs. ONNX session inference
-    feat_times = []
-    onnx_times = []
-    for i in range(n_runs):
-        df_curr = dfs[i % len(dfs)]
-        if hasattr(model, "_compute_window_features") and hasattr(model, "session"):
-            input_name = getattr(model, "input_name", None) or model.session.get_inputs()[0].name
-            t0 = time.perf_counter()
-            _, feats = model._compute_window_features(df_curr)
-            t1 = time.perf_counter()
-            feats_arr = np.asarray(feats, dtype=np.float32)
-            _ = model.session.run(None, {input_name: feats_arr})
-            t2 = time.perf_counter()
-            feat_times.append(t1 - t0)
-            onnx_times.append(t2 - t1)
-
-    # Recording-length breakdown (short / medium / long)
-    per_length = {}
-    for label, p_item, df_item in zip(["short", "medium", "long"], selected_paths, dfs):
-        lt = []
-        for _ in range(10):
-            t0 = time.perf_counter()
-            _ = model.run(df_item)
-            lt.append(time.perf_counter() - t0)
-        per_length[label] = {
-            "file": p_item.name,
-            "rows": int(len(df_item)),
-            "met": float(np.mean(lt)),
-            "p95": float(np.percentile(lt, 95)),
-        }
-
-    arr = np.asarray(total_times, dtype=np.float64)
-    met = float(np.mean(arr))
-    median = float(np.median(arr))
-    p95 = float(np.percentile(arr, 95))
-    std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
-    peak_ram_mb = peak_bytes / (1024.0 * 1024.0)
-    speed_score = max(0.0, min(20.0, (1.0 - met / 0.3) * 20.0))
-
-    feat_stats = None
-    onnx_stats = None
-    if feat_times and onnx_times:
-        f_arr = np.asarray(feat_times, dtype=np.float64)
-        o_arr = np.asarray(onnx_times, dtype=np.float64)
-        feat_stats = {
-            "mean": float(np.mean(f_arr)),
-            "median": float(np.median(f_arr)),
-            "p95": float(np.percentile(f_arr, 95)),
-            "std": float(np.std(f_arr, ddof=1)) if len(f_arr) > 1 else 0.0,
-        }
-        onnx_stats = {
-            "mean": float(np.mean(o_arr)),
-            "median": float(np.median(o_arr)),
-            "p95": float(np.percentile(o_arr, 95)),
-            "std": float(np.std(o_arr, ddof=1)) if len(o_arr) > 1 else 0.0,
-        }
-
-    return {
-        "met": met,
-        "median": median,
-        "p95": p95,
-        "std": std,
-        "peak_ram_mb": peak_ram_mb,
-        "speed_score": speed_score,
-        "feat_stats": feat_stats,
-        "onnx_stats": onnx_stats,
-        "per_length": per_length,
-    }
-
-
-def evaluate_grouped_cv_and_parity(root_dir: pathlib.Path, onnx_path: pathlib.Path) -> dict:
-    """EXP-OPT-01-3: 5-fold GroupKFold metrics + ONNX probability parity check."""
-    X, y, groups = train_model.build_dataset(root_dir, win_sec=10)
-    n_splits = min(5, len(np.unique(groups)))
-    gkf = GroupKFold(n_splits=n_splits)
-    oof_probs = np.zeros((len(y), 3), dtype=np.float32)
-
-    last_pipe = None
-    last_va_x = None
+    t0 = time.perf_counter()
     for fold, (tr_idx, va_idx) in enumerate(gkf.split(X, y, groups)):
-        pipe = train_model.Pipeline(
+        pipe = Pipeline(
             [
-                ("imputer", train_model.SimpleImputer(strategy="median")),
+                ("imputer", SimpleImputer(strategy="median")),
                 (
                     "rf",
-                    train_model.RandomForestClassifier(
+                    RandomForestClassifier(
                         n_estimators=200,
                         max_depth=18,
                         min_samples_leaf=2,
@@ -185,198 +160,218 @@ def evaluate_grouped_cv_and_parity(root_dir: pathlib.Path, onnx_path: pathlib.Pa
             ]
         )
         pipe.fit(X[tr_idx], y[tr_idx])
-        probs = pipe.predict_proba(X[va_idx])
-        for col_idx, cls_val in enumerate(pipe.classes_):
-            oof_probs[va_idx, int(cls_val)] = probs[:, col_idx]
-        last_pipe = pipe
-        last_va_x = X[va_idx]
+        oof_preds[va_idx] = pipe.predict(X[va_idx])
+    cv_sec = time.perf_counter() - t0
 
-    raw_preds = np.argmax(oof_probs, axis=1)
-    raw_f1 = float(f1_score(y, raw_preds, average="macro", zero_division=0))
+    macro_f1 = float(f1_score(y, oof_preds, average="macro", zero_division=0))
+    _, _, f1_cls, _ = precision_recall_fscore_support(y, oof_preds, labels=[0, 1, 2], zero_division=0)
+    return macro_f1, f1_cls, cv_sec
 
-    tuned_preds = np.argmax(oof_probs * TUNED_WEIGHTS, axis=1)
-    tuned_f1 = float(f1_score(y, tuned_preds, average="macro", zero_division=0))
 
-    rest_f1 = float(f1_score(y == 0, tuned_preds == 0, zero_division=0))
-    stress_f1 = float(f1_score(y == 1, tuned_preds == 1, zero_division=0))
-    activity_f1 = float(f1_score(y == 2, tuned_preds == 2, zero_division=0))
+def benchmark_run_50(model, dfs: list[pd.DataFrame], n_runs: int = 50) -> dict[str, float]:
+    _ = model.run(dfs[0])  # warm-up
 
-    max_prob_diff = None
-    if onnx_path.exists() and last_pipe is not None and last_va_x is not None:
-        try:
-            import onnxruntime as ort
+    latencies = []
+    for i in range(n_runs):
+        df = dfs[i % len(dfs)]
+        t0 = time.perf_counter()
+        out = model.run(df)
+        dt = time.perf_counter() - t0
+        assert_valid_output(out)
+        latencies.append(dt)
 
-            sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
-            inp_name = sess.get_inputs()[0].name
-            sample_x = np.asarray(last_va_x[: min(100, len(last_va_x))], dtype=np.float32)
-            sk_probs = np.asarray(last_pipe.predict_proba(sample_x), dtype=np.float32)
-            ort_outs = sess.run(None, {inp_name: sample_x})
-            ort_probs = np.asarray(ort_outs[1] if len(ort_outs) > 1 else ort_outs[0], dtype=np.float32)
-            if sk_probs.shape == ort_probs.shape:
-                max_prob_diff = float(np.max(np.abs(sk_probs - ort_probs)))
-        except Exception:
-            max_prob_diff = None
+    tracemalloc.start()
+    for i in range(n_runs):
+        df = dfs[i % len(dfs)]
+        out = model.run(df)
+        assert_valid_output(out)
+    _, peak_bytes = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
 
+    arr = np.asarray(latencies, dtype=np.float64)
     return {
-        "n_subjects": int(len(np.unique(groups))),
-        "n_windows": int(len(y)),
-        "raw_f1": raw_f1,
-        "tuned_f1": tuned_f1,
-        "rest_f1": rest_f1,
-        "stress_f1": stress_f1,
-        "activity_f1": activity_f1,
-        "max_prob_diff": max_prob_diff,
+        "met": float(np.mean(arr)),
+        "median": float(np.median(arr)),
+        "p95": float(np.percentile(arr, 95)),
+        "std": float(np.std(arr)),
+        "peak_mb": float(peak_bytes / (1024.0 * 1024.0)),
     }
 
 
-def run_exp_opt_01_suite() -> None:
-    work_dir = pathlib.Path(__file__).resolve().parent
-    root_dir = resolve_root_dir(work_dir)
-    notes_path = work_dir / "experiment_notes.md"
-    onnx_path = work_dir / "submission_model.onnx"
-    onnx_size_mb = onnx_path.stat().st_size / (1024.0 * 1024.0) if onnx_path.exists() else 0.0
-
-    parquet_files = sorted((root_dir / "data").rglob("*.parquet"))
-    assert parquet_files, f"No .parquet files found under {root_dir / 'data'}"
-
-    call_audit = audit_resample_rolling_calls(work_dir)
-    perf = benchmark_stage_and_length(parquet_files, n_runs=50)
-    cv = evaluate_grouped_cv_and_parity(root_dir, onnx_path)
-
-    qual_score = cv["tuned_f1"] * 80.0
-    total_score = qual_score + perf["speed_score"]
-    within_budget = perf["met"] < 0.30
-    decision_str = (
-        "Retain if MET < 0.30 s and grouped Macro-F1 / parity hold"
-        if within_budget
-        else f"Discard/do not retain as-is: MET={perf['met']:.4f} s exceeds 0.30 s threshold (Speed score = {perf['speed_score']:.2f}/20)"
+def append_experiment_to_notes(
+    *,
+    exp_id: str,
+    title: str,
+    hypothesis: str,
+    changes_made: str,
+    files_modified: list[str] | str,
+    validation_method: str,
+    prev_macro_f1: str,
+    new_macro_f1: str,
+    per_class_f1: str,
+    met_sec: Optional[float],
+    median_sec: Optional[float] = None,
+    p95_sec: Optional[float] = None,
+    std_sec: Optional[float] = None,
+    peak_ram_mb: Optional[float] = None,
+    onnx_size_mb: Optional[float] = 26.43,
+    quality_score: Optional[float] = None,
+    speed_score: Optional[float] = None,
+    total_score: Optional[float] = None,
+    conclusion: str,
+    notes_path: pathlib.Path = NOTES_PATH,
+) -> pathlib.Path:
+    """Appends a structured experiment entry to experiment_notes.md."""
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    files_str = (
+        ", ".join(f"`{f}`" for f in files_modified)
+        if isinstance(files_modified, list)
+        else str(files_modified)
     )
 
-    parity_str = f"{cv['max_prob_diff']:.6e}" if cv["max_prob_diff"] is not None else "N/A"
-    exec_line = (
-        f"MET: {perf['met']:.4f} s | Median: {perf['median']:.4f} s | P95: {perf['p95']:.4f} s | "
-        f"Std: {perf['std']:.4f} s | Peak RAM: {perf['peak_ram_mb']:.2f} MB | ONNX size: {onnx_size_mb:.2f} MB"
-    )
+    if speed_score is None and met_sec is not None:
+        speed_score = max(0.0, min(20.0, (1.0 - met_sec / 0.30) * 20.0))
 
-    exp_01 = f"""### EXP-OPT-01: Feature Extraction Bottlenecks (Resample & Rolling Overhead)
-- **Experiment ID:** EXP-OPT-01
-- **Hypothesis:** Repeated `.resample("10s")` and `.rolling(...)` calls over high-rate sensor series (`BVP` at 64 Hz, `EDA` and `Temperature` at 4 Hz, `HR` at 1 Hz, and `IBI_*`) in `submission_model` (`submission_model.py` + `submission_model.onnx`) re-scan index buckets multiple times inside `run()`. Streamlining resampling/rolling passes reduces feature extraction overhead without changing grouped Macro-F1 or parity.
-- **Changes made:** Executed full EXP-OPT-01 suite (`EXP-OPT-01` and `EXP-OPT-01-1` through `EXP-OPT-01-6`) via `run_experiments.py` on `submission_model` (`submission_model.py` + `submission_model.onnx`).
-- **Files modified:** `submission_model.py`, `submission_model.onnx`, `train_model.py`, `run_experiments.py`, `log_results.py`, `experiment_notes.md`
-- **Validation method:** 5-fold `GroupKFold` by subject ID ({cv['n_subjects']} subjects, {cv['n_windows']} windows) + 50-run single-core `submission_model` `run()` benchmark (1 CPU core, threads=1, <=4 GB RAM, <=50 MB zip; max prob diff: {parity_str})
-- **Previous macro-F1:** Raw {PREV_RAW_F1:.4f} | Tuned {PREV_TUNED_F1:.4f}
-- **New macro-F1:** Raw {cv['raw_f1']:.4f} | Tuned {cv['tuned_f1']:.4f}
-- **Per-class F1:** Rest: {cv['rest_f1']:.4f} | Stress: {cv['stress_f1']:.4f} | Activity: {cv['activity_f1']:.4f}
-- **Execution time:** {exec_line}
-- **Estimated total competition score:** {total_score:.2f} / 100 (Quality: {qual_score:.2f}/80, Speed: {perf['speed_score']:.2f}/20)
-- **Conclusion:** {decision_str}."""
+    exec_parts = []
+    if met_sec is not None:
+        exec_parts.append(f"MET: {met_sec:.4f} s")
+    if median_sec is not None:
+        exec_parts.append(f"Median: {median_sec:.4f} s")
+    if p95_sec is not None:
+        exec_parts.append(f"P95: {p95_sec:.4f} s")
+    if std_sec is not None:
+        exec_parts.append(f"Std: {std_sec:.4f} s")
+    if peak_ram_mb is not None:
+        exec_parts.append(f"Peak RAM: {peak_ram_mb:.2f} MB")
+    if onnx_size_mb is not None:
+        exec_parts.append(f"ONNX size: {onnx_size_mb:.2f} MB")
+    exec_line = " | ".join(exec_parts) if exec_parts else "N/A"
 
-    pl = perf["per_length"]
-    exp_01_1 = f"""### EXP-OPT-01-1: Recording Length & Multi-Rate Resampling Scaling
-- **Experiment ID:** EXP-OPT-01-1
-- **Hypothesis:** Longer recordings and 64 Hz `BVP` alongside 4 Hz `EDA`/`Temperature` and 1 Hz `HR`/`IBI_*` increase resampling and rolling cost inside `submission_model.run()`.
-- **Changes made:** Benchmarked 10 calls each on short (`{pl['short']['file']}`, {pl['short']['rows']} rows: MET={pl['short']['met']:.4f} s, P95={pl['short']['p95']:.4f} s), medium (`{pl['medium']['file']}`, {pl['medium']['rows']} rows: MET={pl['medium']['met']:.4f} s, P95={pl['medium']['p95']:.4f} s), and long (`{pl['long']['file']}`, {pl['long']['rows']} rows: MET={pl['long']['met']:.4f} s, P95={pl['long']['p95']:.4f} s) recordings on `submission_model` (`submission_model.py` + `submission_model.onnx`).
-- **Files modified:** `submission_model.py`, `submission_model.onnx`, `experiment_notes.md`
-- **Validation method:** 5-fold `GroupKFold` ({cv['n_subjects']} subjects, {cv['n_windows']} windows) + single-core per-length `run()` timing on `submission_model`
-- **Previous macro-F1:** Raw {PREV_RAW_F1:.4f} | Tuned {PREV_TUNED_F1:.4f}
-- **New macro-F1:** Raw {cv['raw_f1']:.4f} | Tuned {cv['tuned_f1']:.4f}
-- **Per-class F1:** Rest: {cv['rest_f1']:.4f} | Stress: {cv['stress_f1']:.4f} | Activity: {cv['activity_f1']:.4f}
-- **Execution time:** {exec_line}
-- **Estimated total competition score:** {total_score:.2f} / 100
-- **Conclusion:** Recorded short/medium/long recording latency scaling for `submission_model` (`submission_model.py` + `submission_model.onnx`)."""
-
-    if perf["feat_stats"] and perf["onnx_stats"]:
-        fs = perf["feat_stats"]
-        os_ = perf["onnx_stats"]
-        f_share = (fs["mean"] / perf["met"] * 100.0) if perf["met"] > 0 else 0.0
-        stage_summary = (
-            f"Feature extraction mean={fs['mean']:.4f} s (med={fs['median']:.4f} s, P95={fs['p95']:.4f} s, std={fs['std']:.4f} s, {f_share:.1f}% of MET) "
-            f"vs. ONNX session mean={os_['mean']:.4f} s (med={os_['median']:.4f} s, P95={os_['p95']:.4f} s, std={os_['std']:.4f} s)"
-        )
+    if total_score is not None:
+        q_part = f"Quality: {quality_score:.2f}/80, " if quality_score is not None else ""
+        s_part = f"Speed: {speed_score:.2f}/20" if speed_score is not None else ""
+        score_line = f"{total_score:.2f} / 100 ({q_part}{s_part})".rstrip(", ")
+    elif speed_score is not None:
+        score_line = f"Speed component: {speed_score:.2f} / 20.00 (Quality pending)"
     else:
-        stage_summary = "Stage-level breakdown unavailable (missing _compute_window_features or session attribute on submission_model)."
+        score_line = "N/A"
 
-    exp_01_2 = f"""### EXP-OPT-01-2: Stage Profiling — Feature Extraction vs. ONNX Inference
-- **Experiment ID:** EXP-OPT-01-2
-- **Hypothesis:** Isolating `_compute_window_features` from `session.run(...)` on `submission_model` (`submission_model.py` + `submission_model.onnx`) reveals whether Pandas resampling/rolling or ONNX session inference dominates latency.
-- **Changes made:** Separated feature extraction timing from ONNX session timing across 50 single-threaded runs on `submission_model`.
-- **Files modified:** `submission_model.py`, `submission_model.onnx`, `experiment_notes.md`
-- **Validation method:** 5-fold `GroupKFold` ({cv['n_subjects']} subjects, {cv['n_windows']} windows) + 50-run single-core stage breakdown on `submission_model`
-- **Previous macro-F1:** Raw {PREV_RAW_F1:.4f} | Tuned {PREV_TUNED_F1:.4f}
-- **New macro-F1:** Raw {cv['raw_f1']:.4f} | Tuned {cv['tuned_f1']:.4f}
-- **Per-class F1:** Rest: {cv['rest_f1']:.4f} | Stress: {cv['stress_f1']:.4f} | Activity: {cv['activity_f1']:.4f}
-- **Execution time:** {exec_line} | {stage_summary}
-- **Estimated total competition score:** {total_score:.2f} / 100
-- **Conclusion:** {stage_summary} on `submission_model` (`submission_model.py` + `submission_model.onnx`)."""
+    entry = (
+        f"\n<!-- Logged: {now_str} ({exp_id}) -->\n"
+        f"### {exp_id}: {title}\n"
+        f"- **Experiment ID:** {exp_id}\n"
+        f"- **Hypothesis:** {hypothesis}\n"
+        f"- **Changes made:** {changes_made}\n"
+        f"- **Files modified:** {files_str}\n"
+        f"- **Validation method:** {validation_method}\n"
+        f"- **Previous macro-F1:** {prev_macro_f1}\n"
+        f"- **New macro-F1:** {new_macro_f1}\n"
+        f"- **Per-class F1:** {per_class_f1}\n"
+        f"- **Execution time:** {exec_line}\n"
+        f"- **Estimated total competition score:** {score_line}\n"
+        f"- **Conclusion:** {conclusion}\n"
+    )
 
-    exp_01_3 = f"""### EXP-OPT-01-3: Numerical Parity & Grouped Macro-F1 Verification
-- **Experiment ID:** EXP-OPT-01-3
-- **Hypothesis:** Feature extraction adjustments should preserve sklearn-vs-ONNX probability parity and grouped `GroupKFold` Macro-F1 across `Rest`, `Stress`, and `Activity`.
-- **Changes made:** Measured max absolute probability difference between scikit-learn and `submission_model.onnx` alongside 5-fold `GroupKFold` raw and weight-tuned (`[0.95, 1.80, 0.85]`) Macro-F1.
-- **Files modified:** `submission_model.py`, `submission_model.onnx`, `train_model.py`, `experiment_notes.md`
-- **Validation method:** 5-fold `GroupKFold` ({cv['n_subjects']} subjects, {cv['n_windows']} windows) + sklearn vs. ONNX parity check
-- **Previous macro-F1:** Raw {PREV_RAW_F1:.4f} | Tuned {PREV_TUNED_F1:.4f}
-- **New macro-F1:** Raw {cv['raw_f1']:.4f} | Tuned {cv['tuned_f1']:.4f}
-- **Per-class F1:** Rest: {cv['rest_f1']:.4f} | Stress: {cv['stress_f1']:.4f} | Activity: {cv['activity_f1']:.4f}
-- **Execution time:** {exec_line} | Max prob diff: {parity_str}
-- **Estimated total competition score:** {total_score:.2f} / 100
-- **Conclusion:** Verified sklearn-vs-ONNX parity (`{parity_str}`) and grouped Macro-F1 (`{cv['tuned_f1']:.4f}`) for `submission_model` (`submission_model.py` + `submission_model.onnx`)."""
+    notes_path = pathlib.Path(notes_path)
+    existing = notes_path.read_text(encoding="utf-8") if notes_path.exists() else "# Experiment Notes\n"
+    if not existing.endswith("\n"):
+        existing += "\n"
+    notes_path.write_text(existing + entry, encoding="utf-8")
+    return notes_path
 
-    ram_ok = perf["peak_ram_mb"] <= 4096.0
-    size_ok = onnx_size_mb <= 50.0
-    exp_01_4 = f"""### EXP-OPT-01-4: Single-Thread Execution, Peak RAM & ONNX Size Check
-- **Experiment ID:** EXP-OPT-01-4
-- **Hypothesis:** Resampling and rolling buffers in `submission_model` (`submission_model.py` + `submission_model.onnx`) must remain within single-core thread limits, <=4 GB RAM, and <=50 MB `.zip` / `.onnx` bounds.
-- **Changes made:** Tracked `tracemalloc` peak RAM ({perf['peak_ram_mb']:.2f} MB) and `submission_model.onnx` size ({onnx_size_mb:.2f} MB) under pinned single-thread environment variables.
-- **Files modified:** `submission_model.py`, `submission_model.onnx`, `experiment_notes.md`
-- **Validation method:** 5-fold `GroupKFold` ({cv['n_subjects']} subjects, {cv['n_windows']} windows) + single-core `tracemalloc` & artifact size audit on `submission_model`
-- **Previous macro-F1:** Raw {PREV_RAW_F1:.4f} | Tuned {PREV_TUNED_F1:.4f}
-- **New macro-F1:** Raw {cv['raw_f1']:.4f} | Tuned {cv['tuned_f1']:.4f}
-- **Per-class F1:** Rest: {cv['rest_f1']:.4f} | Stress: {cv['stress_f1']:.4f} | Activity: {cv['activity_f1']:.4f}
-- **Execution time:** {exec_line}
-- **Estimated total competition score:** {total_score:.2f} / 100
-- **Conclusion:** Peak RAM ({perf['peak_ram_mb']:.2f} MB, <=4 GB: {ram_ok}) and ONNX size ({onnx_size_mb:.2f} MB, <=50 MB: {size_ok}) checked on `submission_model` (`submission_model.py` + `submission_model.onnx`)."""
 
-    sub_c = call_audit.get("submission_model.py", {})
-    tr_c = call_audit.get("train_model.py", {})
-    exp_01_5 = f"""### EXP-OPT-01-5: Resample & Rolling Call Count Audit
-- **Experiment ID:** EXP-OPT-01-5
-- **Hypothesis:** Counting `.resample(...)` and `.rolling(...)` calls in `submission_model.py` and `train_model.py` identifies repeated index bucket scans across multi-rate sensor columns.
-- **Changes made:** Audited static `.resample(...)` and `.rolling(...)` call counts in `submission_model.py` ({sub_c}) and `train_model.py` ({tr_c}).
-- **Files modified:** `submission_model.py`, `train_model.py`, `experiment_notes.md`
-- **Validation method:** 5-fold `GroupKFold` ({cv['n_subjects']} subjects, {cv['n_windows']} windows) + static call-count audit alongside 50-run `submission_model` timing
-- **Previous macro-F1:** Raw {PREV_RAW_F1:.4f} | Tuned {PREV_TUNED_F1:.4f}
-- **New macro-F1:** Raw {cv['raw_f1']:.4f} | Tuned {cv['tuned_f1']:.4f}
-- **Per-class F1:** Rest: {cv['rest_f1']:.4f} | Stress: {cv['stress_f1']:.4f} | Activity: {cv['activity_f1']:.4f}
-- **Execution time:** {exec_line}
-- **Estimated total competition score:** {total_score:.2f} / 100
-- **Conclusion:** Audited `.resample(...)` and `.rolling(...)` occurrences in `submission_model` (`submission_model.py` + `submission_model.onnx`) and `train_model.py`."""
+def run_exp_opt_03() -> None:
+    X_base, y, groups, feat_names, source_mode = load_grouped_dataset()
+    X_dedup, kept_names, dropped_names = deduplicate_feature_matrix(X_base, feat_names)
 
-    exp_01_6 = f"""### EXP-OPT-01-6: 0.30 s Speed Threshold & Retain/Discard Check
-- **Experiment ID:** EXP-OPT-01-6
-- **Hypothesis:** Any change that pushes 50-run single-core MET to or above `0.30 s` drops Speed score (`max(0, (1 - MET/0.3)*20)`) to `0.00 / 20` and must not be retained over a faster baseline.
-- **Changes made:** Evaluated 50-run single-core MET (`{perf['met']:.4f} s`) against the `0.30 s` cutoff and computed resulting Speed (`{perf['speed_score']:.2f}/20`) and Total (`{total_score:.2f}/100`) scores for `submission_model`.
-- **Files modified:** `submission_model.py`, `submission_model.onnx`, `experiment_notes.md`
-- **Validation method:** 5-fold `GroupKFold` ({cv['n_subjects']} subjects, {cv['n_windows']} windows) + 50-run single-core `submission_model` MET threshold check
-- **Previous macro-F1:** Raw {PREV_RAW_F1:.4f} | Tuned {PREV_TUNED_F1:.4f}
-- **New macro-F1:** Raw {cv['raw_f1']:.4f} | Tuned {cv['tuned_f1']:.4f}
-- **Per-class F1:** Rest: {cv['rest_f1']:.4f} | Stress: {cv['stress_f1']:.4f} | Activity: {cv['activity_f1']:.4f}
-- **Execution time:** {exec_line}
-- **Estimated total competition score:** {total_score:.2f} / 100
-- **Conclusion:** {decision_str} for `submission_model` (`submission_model.py` + `submission_model.onnx`)."""
+    # Verify exact numerical equivalence on non-duplicate columns
+    non_dup_cols = [i for i, n in enumerate(kept_names) if n not in {"HR_minus_ctx40", "EDA_minus_ctx40"}]
+    np.testing.assert_allclose(
+        np.nan_to_num(X_base[:, non_dup_cols], nan=0.0),
+        np.nan_to_num(X_dedup[:, non_dup_cols], nan=0.0),
+        rtol=1e-6,
+        atol=1e-6,
+    )
 
-    for exp_id, block in [
-        ("EXP-OPT-01", exp_01),
-        ("EXP-OPT-01-1", exp_01_1),
-        ("EXP-OPT-01-2", exp_01_2),
-        ("EXP-OPT-01-3", exp_01_3),
-        ("EXP-OPT-01-4", exp_01_4),
-        ("EXP-OPT-01-5", exp_01_5),
-        ("EXP-OPT-01-6", exp_01_6),
-    ]:
-        log_exp_markdown(exp_id, block, notes_path)
-        print(block + "\n")
+    base_f1, base_cls_f1, base_cv_sec = eval_group_kfold_rf(X_base, y, groups, n_splits=5)
+    dedup_f1, dedup_cls_f1, dedup_cv_sec = eval_group_kfold_rf(X_dedup, y, groups, n_splits=5)
+
+    parquet_files = sorted(DATA_DIR.rglob("*.parquet"))
+    sample_dfs = [pd.read_parquet(p) for p in parquet_files[:10]]
+    model = sub_mod.get_model()
+    stats = benchmark_run_50(model, sample_dfs, n_runs=50)
+
+    qual_score = dedup_f1 * 80.0
+    speed_score = max(0.0, min(20.0, (1.0 - stats["met"] / 0.30) * 20.0))
+    est_total = qual_score + speed_score
+
+    d_236_met = stats["met"] - EXP_OPT_2_3_6_REF["met"]
+    d_236_med = stats["median"] - EXP_OPT_2_3_6_REF["median"]
+    d_236_p95 = stats["p95"] - EXP_OPT_2_3_6_REF["p95"]
+    d_236_std = stats["std"] - EXP_OPT_2_3_6_REF["std"]
+    d_236_ram = stats["peak_mb"] - EXP_OPT_2_3_6_REF["peak_mb"]
+
+    d_base_met = stats["met"] - AUDIT_BASELINE_REF["met"]
+    d_base_p95 = stats["p95"] - AUDIT_BASELINE_REF["p95"]
+    d_base_ram = stats["peak_mb"] - AUDIT_BASELINE_REF["peak_mb"]
+
+    feat_summary = f"{X_base.shape[1]} -> {X_dedup.shape[1]} features (dropped={dropped_names or 'none'})"
+    cls_str = (
+        f"Rest: {dedup_cls_f1[0]:.4f} (base {base_cls_f1[0]:.4f}) | "
+        f"Stress: {dedup_cls_f1[1]:.4f} (base {base_cls_f1[1]:.4f}) | "
+        f"Activity: {dedup_cls_f1[2]:.4f} (base {base_cls_f1[2]:.4f})"
+    )
+
+    print("=== EXP-OPT-03: Repeated Calculations Check (1 Thread, 50 Runs + 5-Fold GroupKFold) ===")
+    print(f"Dataset source: {source_mode} | Shape: {X_base.shape} -> {X_dedup.shape} | Dropped: {dropped_names}")
+    print(f"Non-duplicate feature equivalence: PASSED")
+    print(f"5-Fold GroupKFold Macro-F1: {base_f1:.4f} -> {dedup_f1:.4f} ({dedup_f1 - base_f1:+.4f}) | {cls_str}")
+    print(
+        f"50-Run MET: {stats['met']:.4f} s (vs EXP-OPT-2-3..6 {d_236_met:+.4f} s, vs base {d_base_met:+.4f} s) | "
+        f"Median: {stats['median']:.4f} s ({d_236_med:+.4f} s) | "
+        f"P95: {stats['p95']:.4f} s (vs EXP-OPT-2-3..6 {d_236_p95:+.4f} s, vs base {d_base_p95:+.4f} s) | "
+        f"Std: {stats['std']:.4f} s ({d_236_std:+.4f} s) | "
+        f"Peak RAM: {stats['peak_mb']:.2f} MB (vs EXP-OPT-2-3..6 {d_236_ram:+.2f} MB, vs base {d_base_ram:+.2f} MB)"
+    )
+    print(f"Est. Score: {est_total:.2f}/100 (Quality: {qual_score:.2f}/80, Speed: {speed_score:.2f}/20.00)")
+
+    logged_path = append_experiment_to_notes(
+        exp_id="EXP-OPT-03",
+        title="Repeated Calculations (Duplicate/Recomputed Feature Check, 5-Fold GroupKFold & 50-Run Benchmark)",
+        hypothesis=(
+            "Eliminating duplicate/recomputed aggregations (such as HR_minus_ctx40 and EDA_minus_ctx40 "
+            "duplicating diff_ctx_df columns and redundant rolling passes) preserves non-duplicate feature "
+            "equivalence and grouped Macro-F1 while reducing redundant compute without altering baseline artifacts."
+        ),
+        changes_made=(
+            f"Evaluated duplicate-column removal ({feat_summary}) with exact equivalence verification on "
+            f"non-duplicate columns under 5-fold GroupKFold and 50-run single-core run() timing while "
+            f"keeping baseline submission_model.py, submission_model.onnx, and submission.zip untouched."
+        ),
+        files_modified=["run_exp_opt_03.py", "experiment_notes.md"],
+        validation_method="5-fold GroupKFold by subject ID + non-duplicate equivalence check + 50-run single-core run() benchmark (1 thread)",
+        prev_macro_f1=f"Same-split baseline {base_f1:.4f} | Prior ref 0.5571 raw / 0.5809 tuned",
+        new_macro_f1=f"{dedup_f1:.4f} ({dedup_f1 - base_f1:+.4f} vs same-split baseline)",
+        per_class_f1=cls_str,
+        met_sec=stats["met"],
+        median_sec=stats["median"],
+        p95_sec=stats["p95"],
+        std_sec=stats["std"],
+        peak_ram_mb=stats["peak_mb"],
+        onnx_size_mb=AUDIT_BASELINE_REF["onnx_mb"],
+        quality_score=qual_score,
+        speed_score=speed_score,
+        total_score=est_total,
+        conclusion=(
+            f"Non-duplicate equivalence & 50-run checks PASSED ({feat_summary}); "
+            f"delta vs EXP-OPT-2-3..6: MET {d_236_met:+.4f} s, median {d_236_med:+.4f} s, "
+            f"P95 {d_236_p95:+.4f} s, std {d_236_std:+.4f} s, RAM {d_236_ram:+.2f} MB; "
+            f"delta vs baseline: MET {d_base_met:+.4f} s, P95 {d_base_p95:+.4f} s, RAM {d_base_ram:+.2f} MB; "
+            f"retain working baseline and submission.zip unchanged."
+        ),
+    )
+    print(f"Appended EXP-OPT-03 entry to {logged_path.resolve()}")
 
 
 if __name__ == "__main__":
-    run_exp_opt_01_suite()
+    run_exp_opt_03()

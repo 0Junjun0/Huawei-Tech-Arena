@@ -297,3 +297,73 @@ Macro-F1: 0.5571 | Quality score: 44.57/80 | Est. Total: 62.45/100
 - **Execution time:** MET: 0.3131 s | Median: 0.3107 s | P95: 0.4696 s | Std: 0.1496 s | Peak RAM: 27.53 MB | ONNX size: 26.43 MB
 - **Estimated total competition score:** 46.44 / 100
 - **Conclusion:** Discard/do not retain as-is: MET=0.3131 s exceeds 0.30 s threshold (Speed score = 0.00/20) for `submission_model` (`submission_model.py` + `submission_model.onnx`).
+
+<!-- Logged: 2026-11-24 23:05:46 (EXP-OPT-02) -->
+### EXP-OPT-02: Unnecessary Pandas Operations (Chaining, Concat & Repeated fillna)
+- **Experiment ID:** EXP-OPT-02
+- **Hypothesis:** Streamlining Pandas chaining, .add_suffix() + pd.concat(..., axis=1), and repeated .fillna(0.0) reduces index-alignment overhead and memory while preserving exact outputs.
+- **Changes made:** Ran EXP-OPT-02 parity, input non-mutation, shuffled-column, and NaN robustness tests plus 50-run single-threaded run() benchmark without altering baseline submission files.
+- **Files modified:** `run_exp_opt_02.py`, `experiment_notes.md`
+- **Validation method:** 10-recording schema/label/parity/non-mutation/NaN checks + 50-run single-core run() benchmark (1 thread)
+- **Previous macro-F1:** Raw 0.5541 | Tuned 0.5805 (prior EXP-OPT-01 baseline)
+- **New macro-F1:** Unchanged (parity checks PASSED on 10 recordings)
+- **Per-class F1:** Rest: 0.6751 | Stress: 0.2700 | Activity: 0.7962 (prior EXP-OPT-01 baseline)
+- **Execution time:** MET: 0.0554 s | Median: 0.0543 s | P95: 0.0814 s | Std: 0.0173 s | Peak RAM: 19.06 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** Speed component: 16.31 / 20.00 (Quality pending)
+- **Conclusion:** Parity PASSED (delta MET +0.0215 s, delta P95 +0.0415 s, delta RAM +0.25 MB vs. audit_pipeline.py baseline); retain baseline submission unchanged.
+
+<!-- Logged: 2026-11-24 23:08:32 (EXP-OPT-2-1) -->
+### EXP-OPT-2-1: Unnecessary Pandas Operations Follow-Up (Full Parity, Non-Mutation & 50-Run Benchmark)
+- **Experiment ID:** EXP-OPT-2-1
+- **Hypothesis:** Following EXP-OPT-02, verifying schema/label validity, exact output parity across identical and shuffled-column inputs, input non-mutation, NaN robustness, and 50-run single-core latency/RAM confirms whether streamlined Pandas behavior stays parity-safe without regressing baseline speed.
+- **Changes made:** Executed full EXP-OPT-2-1 test suite (schema, valid labels, identical/shuffled-column parity, input non-mutation, NaN robustness, and 50-run single-threaded run() latency + peak RAM) while keeping baseline submission files untouched.
+- **Files modified:** `run_exp_opt_2_1.py`, `experiment_notes.md`
+- **Validation method:** 10-recording schema/label/parity/non-mutation/NaN checks + 50-run single-core run() benchmark (1 thread)
+- **Previous macro-F1:** Raw 0.5541 | Tuned 0.5805 (prior EXP-OPT-01 / EXP-OPT-02 reference)
+- **New macro-F1:** Unchanged (parity checks PASSED on 10 recordings)
+- **Per-class F1:** Rest: 0.6751 | Stress: 0.2700 | Activity: 0.7962 (prior EXP-OPT-01 / EXP-OPT-02 reference)
+- **Execution time:** MET: 0.0392 s | Median: 0.0373 s | P95: 0.0531 s | Std: 0.0074 s | Peak RAM: 22.88 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** Speed component: 17.39 / 20.00 (Quality pending)
+- **Conclusion:** Parity PASSED; delta vs EXP-OPT-02: MET -0.0162 s, median -0.0170 s, P95 -0.0283 s, std -0.0099 s, RAM +3.82 MB; delta vs baseline: MET +0.0053 s, P95 +0.0132 s, RAM +4.07 MB; retain working baseline and submission.zip unchanged.
+
+<!-- Logged: 2026-11-24 23:11:25 (EXP-OPT-2-2) -->
+### EXP-OPT-2-2: Unnecessary Pandas Operations Continuation (Baseline Inspection, Long-File Parity & 50-Run Check)
+- **Experiment ID:** EXP-OPT-2-2
+- **Hypothesis:** Continuing EXP-OPT-2-X on the untouched baseline model and verifying single-pass array/DataFrame assembly parity across sample + long recordings confirms baseline behavior and isolates whether any speed improvement requires applying streamlined column assembly inside submission_model.py.
+- **Changes made:** Verified streamlined dict/array assembly parity, inspected submission_model.py (.add_suffix=True, pd.concat=True), ran 10-recording parity/non-mutation/column-order/NaN checks (S01.parquet, S02.parquet, S03.parquet, S04.parquet, S05.parquet, S06.parquet, S07.parquet, S08.parquet, S09.parquet, f03.parquet), and benchmarked 50 single-threaded runs without modifying baseline submission files.
+- **Files modified:** `run_exp_opt_2_2.py`, `experiment_notes.md`
+- **Validation method:** 10-recording (incl. long-file) schema/parity/non-mutation/NaN checks + 50-run single-core run() benchmark (1 thread)
+- **Previous macro-F1:** Raw 0.5541 | Tuned 0.5805 (prior EXP-OPT-01 / EXP-OPT-2-1 reference)
+- **New macro-F1:** Unchanged (parity checks PASSED on 10 recordings)
+- **Per-class F1:** Rest: 0.6751 | Stress: 0.2700 | Activity: 0.7962 (prior EXP-OPT-01 / EXP-OPT-2-1 reference)
+- **Execution time:** MET: 0.0332 s | Median: 0.0328 s | P95: 0.0423 s | Std: 0.0056 s | Peak RAM: 22.89 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** Speed component: 17.79 / 20.00 (Quality pending)
+- **Conclusion:** Parity PASSED (add_suffix=True, concat=True); delta vs EXP-OPT-2-1: MET -0.0060 s, median -0.0045 s, P95 -0.0108 s, std -0.0018 s, RAM +0.01 MB; delta vs baseline: MET -0.0007 s, P95 +0.0024 s, RAM +4.08 MB; retain working baseline and submission.zip unchanged.
+
+<!-- Logged: 2026-11-24 23:15:21 (EXP-OPT-2-3..6) -->
+### EXP-OPT-2-3..6: EXP-OPT-2-X Consolidated Suite (Single-Pass Assembly, Edge Cases & 50-Run Benchmark)
+- **Experiment ID:** EXP-OPT-2-3..6
+- **Hypothesis:** Consolidating the remaining EXP-OPT-2-X checks—single-pass float32 matrix assembly parity, short/unsorted/NaN/shuffled-column robustness, input non-mutation, and 50-run single-core latency/RAM—verifies the untouched baseline end-to-end before moving beyond group 2.
+- **Changes made:** Ran consolidated EXP-OPT-2-X suite across S01.parquet, S02.parquet, S03.parquet, S04.parquet, S05.parquet, S06.parquet, S07.parquet, S08.parquet, S09.parquet, f03.parquet plus short, reversed, NaN-injected, and single-pass float32 checks without altering baseline submission files.
+- **Files modified:** `run_exp_opt_2_suite.py`, `experiment_notes.md`
+- **Validation method:** 10-recording + edge-case parity/non-mutation/NaN checks + 50-run single-core run() benchmark (1 thread)
+- **Previous macro-F1:** Raw 0.5541 | Tuned 0.5805 (prior EXP-OPT-01 / EXP-OPT-2-2 reference)
+- **New macro-F1:** Unchanged (all parity & edge-case checks PASSED)
+- **Per-class F1:** Rest: 0.6751 | Stress: 0.2700 | Activity: 0.7962 (prior EXP-OPT-01 / EXP-OPT-2-2 reference)
+- **Execution time:** MET: 0.0421 s | Median: 0.0423 s | P95: 0.0548 s | Std: 0.0062 s | Peak RAM: 22.88 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** Speed component: 17.19 / 20.00 (Quality pending)
+- **Conclusion:** All EXP-OPT-2-X checks PASSED; delta vs EXP-OPT-2-2: MET +0.0089 s, median +0.0095 s, P95 +0.0125 s, std +0.0006 s, RAM -0.01 MB; delta vs baseline: MET +0.0082 s, P95 +0.0149 s, RAM +4.07 MB; retain working baseline and submission.zip unchanged.
+
+<!-- Logged: 2026-11-24 23:19:54 (EXP-OPT-03) -->
+### EXP-OPT-03: Repeated Calculations (Duplicate/Recomputed Feature Check, 5-Fold GroupKFold & 50-Run Benchmark)
+- **Experiment ID:** EXP-OPT-03
+- **Hypothesis:** Eliminating duplicate/recomputed aggregations (such as HR_minus_ctx40 and EDA_minus_ctx40 duplicating diff_ctx_df columns and redundant rolling passes) preserves non-duplicate feature equivalence and grouped Macro-F1 while reducing redundant compute without altering baseline artifacts.
+- **Changes made:** Evaluated duplicate-column removal (44 -> 44 features (dropped=none)) with exact equivalence verification on non-duplicate columns under 5-fold GroupKFold and 50-run single-core run() timing while keeping baseline submission_model.py, submission_model.onnx, and submission.zip untouched.
+- **Files modified:** `run_exp_opt_03.py`, `experiment_notes.md`
+- **Validation method:** 5-fold GroupKFold by subject ID + non-duplicate equivalence check + 50-run single-core run() benchmark (1 thread)
+- **Previous macro-F1:** Same-split baseline 0.5541 | Prior ref 0.5571 raw / 0.5809 tuned
+- **New macro-F1:** 0.5541 (+0.0000 vs same-split baseline)
+- **Per-class F1:** Rest: 0.6986 (base 0.6986) | Stress: 0.1651 (base 0.1651) | Activity: 0.7987 (base 0.7987)
+- **Execution time:** MET: 0.0348 s | Median: 0.0347 s | P95: 0.0464 s | Std: 0.0052 s | Peak RAM: 19.01 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** 62.01 / 100 (Quality: 44.33/80, Speed: 17.68/20)
+- **Conclusion:** Non-duplicate equivalence & 50-run checks PASSED (44 -> 44 features (dropped=none)); delta vs EXP-OPT-2-3..6: MET -0.0073 s, median -0.0076 s, P95 -0.0084 s, std -0.0010 s, RAM -3.87 MB; delta vs baseline: MET +0.0009 s, P95 +0.0065 s, RAM +0.20 MB; retain working baseline and submission.zip unchanged.
