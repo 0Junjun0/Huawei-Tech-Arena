@@ -1,0 +1,9 @@
+proto LR train acc 0.9005335365853658
+wrote /home/user/huawei-arena-work/submissions/_e2e  features=268  onnx=1298 KB  zip=238 KB
+e2e fold0 full: 0.810
+e2e fold0 skipstart: 0.795
+e2e fold0 chunk600: 0.739
+e2e fold0 chunk300: 0.697
+e2e fold0 chunk180: 0.644
+e2e fold0 chunk120: 0.620
+e2e fold0 rand300: 0.646

@@ -1,0 +1,1 @@
+nxe_sw07 nxe {"sw": 0.07} full=0.783 skipstart=0.768 chunk600=0.706 chunk300=0.683 chunk180=0.654 chunk120=0.641 rand300=0.654 blend=0.699

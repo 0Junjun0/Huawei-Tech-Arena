@@ -1,0 +1,1 @@
+lgb lxbfe      aug full=0.679 skipstart=0.683 chunk600=0.668 chunk300=0.662 chunk180=0.630 chunk120=0.625 rand300=0.636 blend=0.655

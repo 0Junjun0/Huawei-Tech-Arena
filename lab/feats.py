@@ -4,6 +4,7 @@ Windows are aligned to 10 s boundaries of the timestamp (same as pandas floor("1
 """
 import numpy as np
 import pandas as pd
+from scipy.ndimage import minimum_filter1d, maximum_filter1d
 
 WIN_NS = 10_000_000_000
 SIG = ["BVP", "EDA", "HR", "IBI_duration", "Temperature"]
@@ -67,7 +68,7 @@ def window_grid(index):
     return t, wid, w0, n_win
 
 
-def _extras(df, t, wid, n_win, Klog):
+def _extras(df, t, wid, n_win, Klog, fb=(3, 9)):
     """EDA response dynamics + one-sided (before/after) context."""
     cols, nm = [], []
     v = df["EDA"].to_numpy(dtype=np.float64) if "EDA" in df.columns else np.full(len(t), np.nan)
@@ -90,7 +91,7 @@ def _extras(df, t, wid, n_win, Klog):
     # one-sided context: mean of next k minus mean of previous k (onset/offset detectors)
     c = np.vstack([np.zeros((1, Klog.shape[1])), np.cumsum(Klog, 0)])
     i = np.arange(n_win)
-    for k in (3, 9):
+    for k in fb:
         lo_b, hi_b = np.clip(i - k, 0, n_win), i
         lo_f, hi_f = np.clip(i + 1, 0, n_win), np.clip(i + 1 + k, 0, n_win)
         nb = np.maximum(hi_b - lo_b, 1)[:, None]; nf = np.maximum(hi_f - lo_f, 1)[:, None]
@@ -103,7 +104,7 @@ def _extras(df, t, wid, n_win, Klog):
     return np.hstack(cols), nm
 
 
-def compute(df: pd.DataFrame, use_time=True, extras=False, local=False):
+def compute(df: pd.DataFrame, use_time=True, extras=False, local=False, lbase=(), fb=(3, 9), edge=0, inlen=False, pmin=()):
     """Returns (window_start_ns[int64], X[float32], names)."""
     t, wid, w0, n_win = window_grid(df.index)
     base_cols, names = [], []
@@ -161,16 +162,45 @@ def compute(df: pd.DataFrame, use_time=True, extras=False, local=False):
 
     # slopes over ~1 and ~3 minutes (centered difference of smoothed signal)
     sm = _roll_mean(Klog, 7)
+    ii = np.arange(n_win)
     for lag in (3, 9):
-        fwd = np.vstack([sm[lag:], np.repeat(sm[-1:], lag, axis=0)])
-        bwd = np.vstack([np.repeat(sm[:1], lag, axis=0), sm[:-lag]])
+        # index clipping == edge padding; works for any n_win >= 1
+        fwd = sm[np.minimum(ii + lag, n_win - 1)]
+        bwd = sm[np.maximum(ii - lag, 0)]
         feats.append(fwd - bwd)
         fnames += [f"{n}_slope{lag}" for n in knames]
+
+    if lbase:
+        # bounded local baseline: position of the smoothed signal within its +-k/2 window range
+        sm3 = _roll_mean(Klog, 3)
+        for k in lbase:
+            lo = minimum_filter1d(sm3, size=min(k, 2 * n_win + 1), axis=0, mode="nearest")
+            hi = maximum_filter1d(sm3, size=min(k, 2 * n_win + 1), axis=0, mode="nearest")
+            feats += [sm3 - lo, (sm3 - lo) / (hi - lo + 1e-6)]
+            fnames += [f"{n}_lb{k}_mmin" for n in knames] + [f"{n}_lb{k}_pos" for n in knames]
+
+    if pmin:
+        # rise above the minimum of the previous k windows (one-sided: onset of stress responses)
+        sm3 = _roll_mean(Klog, 3)
+        for k in pmin:
+            kk = min(k + 1, 2 * n_win - 1) if n_win > 1 else 1
+            lo = minimum_filter1d(sm3, size=kk, axis=0, mode="nearest", origin=(kk - 1) // 2)
+            feats.append(sm3 - lo); fnames += [f"{n}_pmin{k}" for n in knames]
+
+    if inlen:
+        feats.append(np.full((n_win, 1), np.log1p(n_win)))
+        fnames += ["log_n_win"]
+
+    if edge:
+        # distance (windows) to the start / end of this input, capped: lets the model discount edge context
+        pos = np.arange(n_win, dtype=np.float64)
+        feats.append(np.column_stack([np.minimum(pos, edge), np.minimum(n_win - 1 - pos, edge)]))
+        fnames += ["edge_start", "edge_end"]
 
     if local:
         # no whole-recording statistics: only bounded context (robust to chunked / concatenated input)
         if extras:
-            Xe, ne = _extras(df, t, wid, n_win, Klog)
+            Xe, ne = _extras(df, t, wid, n_win, Klog, fb)
             feats.append(Xe); fnames += ne
         X = np.hstack(feats).astype(np.float32)
         return (w0 + np.arange(n_win)) * WIN_NS, X, fnames
@@ -194,7 +224,7 @@ def compute(df: pd.DataFrame, use_time=True, extras=False, local=False):
     fnames += [f"{n}_rec_rng" for n in knames] + [f"{n}_rec_p90" for n in knames] + [f"{n}_rec_p10" for n in knames]
 
     if extras:
-        Xe, ne = _extras(df, t, wid, n_win, Klog)
+        Xe, ne = _extras(df, t, wid, n_win, Klog, fb)
         feats.append(Xe)
         fnames += ne
 

@@ -1,0 +1,1 @@
+nxe_s1 nxe {"seed": 1} full=0.761 skipstart=0.750 chunk600=0.688 chunk300=0.673 chunk180=0.654 chunk120=0.632 rand300=0.643 blend=0.686

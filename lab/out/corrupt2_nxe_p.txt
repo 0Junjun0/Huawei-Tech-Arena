@@ -1,0 +1,7 @@
+fold 0 done
+fold 1 done
+fold 2 done
+fold 3 done
+fold 4 done
+chunk300 RF         clean=0.572 bvp_x3=0.552 bvp_x03=0.572 bvp_noise=0.559 eda_x03=0.562 eda_x3=0.563
+chunk300 nxe_p      clean=0.689 bvp_x3=0.672 bvp_x03=0.680 bvp_noise=0.454 eda_x03=0.661 eda_x3=0.668

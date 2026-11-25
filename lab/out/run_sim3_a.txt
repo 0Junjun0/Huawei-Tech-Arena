@@ -1,0 +1,3 @@
+lgb local    train=full full=0.663 skipstart=0.671 chunk600=0.647 chunk300=0.637 chunk180=0.602 chunk120=0.559 rand300=0.597 blend=0.625
+lgb local    train=aug full=0.634 skipstart=0.647 chunk600=0.631 chunk300=0.625 chunk180=0.597 chunk120=0.599 rand300=0.608 blend=0.620
+lgb localx   train=full full=0.704 skipstart=0.715 chunk600=0.676 chunk300=0.651 chunk180=0.617 chunk120=0.586 rand300=0.626 blend=0.654

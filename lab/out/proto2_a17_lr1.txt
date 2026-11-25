@@ -1,0 +1,2 @@
+a17_lr1 seed 0 full:0.035 skipstart:0.059 chunk600:0.105 chunk300:0.118 chunk180:0.130 chunk120:0.136 rand300:0.138 | full=0.778 skipstart=0.758 chunk600=0.714 chunk300=0.691 chunk180=0.673 chunk120=0.655 rand300=0.659 blend=0.704
+a17_lr1 seed 1 full:0.059 skipstart:0.071 chunk600:0.108 chunk300:0.114 chunk180:0.129 chunk120:0.143 rand300:0.142 | full=0.780 skipstart=0.766 chunk600=0.712 chunk300=0.688 chunk180=0.667 chunk120=0.640 rand300=0.653 blend=0.701

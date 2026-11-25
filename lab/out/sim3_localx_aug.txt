@@ -1,0 +1,1 @@
+lgb localx     aug full=0.664 skipstart=0.670 chunk600=0.651 chunk300=0.642 chunk180=0.622 chunk120=0.622 rand300=0.632 blend=0.643

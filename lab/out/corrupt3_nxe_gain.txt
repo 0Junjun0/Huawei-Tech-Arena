@@ -1,0 +1,7 @@
+fold 0 done
+fold 1 done
+fold 2 done
+fold 3 done
+fold 4 done
+chunk300 RF         clean=0.572 bvp_noise=0.559 placement=0.541
+chunk300 nxe_gain   clean=0.688 bvp_noise=0.682 placement=0.658

@@ -1,0 +1,1 @@
+nxe_rand nxe {"sw": 0.15, "train_sc": ["full", "chunk1200", "rand600"]} full=0.789 skipstart=0.767 chunk600=0.701 chunk300=0.669 chunk180=0.645 chunk120=0.620 rand300=0.647 blend=0.691

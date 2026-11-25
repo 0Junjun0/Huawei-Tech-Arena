@@ -1,0 +1,3 @@
+recording RF(lb73)         per-set mean 0.580 (sd 0.054)  pooled 0.582
+recording bebe_time(lb67)  per-set mean 0.845 (sd 0.048)  pooled 0.847
+recording bebe_notime      per-set mean 0.735 (sd 0.054)  pooled 0.736

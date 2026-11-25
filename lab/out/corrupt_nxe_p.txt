@@ -1,0 +1,9 @@
+fold 0 done
+fold 1 done
+fold 2 done
+fold 3 done
+fold 4 done
+full RF         clean=0.578 conn_loss=0.558 nan_block=0.497 eda_temp_drop=0.554 ibi_sparse=0.566 placement=0.550 hr_shift=0.536
+full nxe_p      clean=0.779 conn_loss=0.754 nan_block=0.718 eda_temp_drop=0.752 ibi_sparse=0.730 placement=0.587 hr_shift=0.763
+chunk300 RF         clean=0.572 conn_loss=0.561 nan_block=0.503 eda_temp_drop=0.549 ibi_sparse=0.569 placement=0.541 hr_shift=0.535
+chunk300 nxe_p      clean=0.689 conn_loss=0.678 nan_block=0.629 eda_temp_drop=0.629 ibi_sparse=0.662 placement=0.527 hr_shift=0.675

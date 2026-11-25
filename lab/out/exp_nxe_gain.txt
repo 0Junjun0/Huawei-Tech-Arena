@@ -1,0 +1,1 @@
+nxe_gain nxe {"sw": 0.1, "train_sc": ["full", "chunk600", "chunk300", "chunk180", "chunk120", "gain_full", "gain_chunk600", "gain_chunk300", "gain_chunk180", "gain_chunk120"]} full=0.779 skipstart=0.765 chunk600=0.700 chunk300=0.675 chunk180=0.649 chunk120=0.629 rand300=0.648 blend=0.692

@@ -1,0 +1,2 @@
+nxe concat gap0min: 0.590
+nxe concat gap30min: 0.598

@@ -1,0 +1,2 @@
+all_lgb seed 0 full:0.059 skipstart:0.071 chunk600:0.111 chunk300:0.128 chunk180:0.136 chunk120:0.141 rand300:0.141 | full=0.783 skipstart=0.765 chunk600=0.715 chunk300=0.685 chunk180=0.659 chunk120=0.641 rand300=0.648 blend=0.699
+all_lgb seed 1 full:0.059 skipstart:0.059 chunk600:0.131 chunk300:0.130 chunk180:0.144 chunk120:0.138 rand300:0.148 | full=0.783 skipstart=0.771 chunk600=0.711 chunk300=0.685 chunk180=0.661 chunk120=0.644 rand300=0.650 blend=0.701

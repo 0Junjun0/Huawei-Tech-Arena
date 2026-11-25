@@ -21,7 +21,7 @@ for df in dfs:
     inp = df[["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]]
     out = model.run(inp)
     assert out.index.equals(inp.index) and set(out["Activity"].unique()) <= {"Rest", "Stress", "Activity"}
-    _, X, _ = mod.compute(inp, use_time=mod.USE_TIME)
+    _, X, _ = mod.compute(inp, **mod.FEAT_KW)
     P_onnx = model.session.run(None, {model.input_name: X})[model.prob_idx]
     maxdiff = max(maxdiff, float(np.abs(P_onnx - lgbm.predict_proba(X)).max()))
     y = window_labels(df)
@@ -33,6 +33,17 @@ print(f"grader-style in-sample macro-F1 (plumbing check only): {f1_score(np.conc
 inp = dfs[0][["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]]
 a = model.run(inp); b = model.run(inp.sample(frac=1, random_state=0)).reindex(inp.index)
 print("order-invariant:", bool((a["Activity"] == b["Activity"]).all()))
+# short / degenerate inputs (1 row, 10 s, 30 s, 90 s, NaN-only, gaps, dup timestamps, str index); also no silent fallback
+from short_test import cases
+for df in (dfs[0], dfs[40], dfs[-1]):
+    for k, d in cases(df[["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]]).items():
+        o = model.run(d)
+        assert len(o) == len(d) and o.index.equals(d.index) and set(o["Activity"].unique()) <= {"Rest", "Stress", "Activity"}, k
+        if k != "allnan":
+            model._predict(d)  # raises if the real path fails (run() would fall back to Rest)
+    model.run(df)  # all columns incl. Phase/user_id
+    tz = df.iloc[:20000].copy(); tz.index = tz.index.tz_localize("UTC"); model._predict(tz)
+print("short/degenerate inputs: OK (1row,10s,30s,90s,bvp-only,allnan,shuffled,gap,dup_ts,str_index,tz)")
 # 3) speed, same as benchmark_run.py (first 10 files, 50 runs)
 sample = [d[["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]] for d in dfs[:10]]
 model.run(sample[0]); ts = []

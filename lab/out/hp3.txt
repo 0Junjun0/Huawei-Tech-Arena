@@ -1,0 +1,1 @@
+localx full+chunk600 {} full=0.681 skipstart=0.689 chunk600=0.668 chunk300=0.652 chunk180=0.621 chunk120=0.598 rand300=0.614 blend=0.646

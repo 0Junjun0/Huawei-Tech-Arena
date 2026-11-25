@@ -1,0 +1,1 @@
+RF           std=0.581 undef_ffill=0.559 undef_rest=0.554 first_ts_grid=0.581 row_level=0.582 drop_first_last_min=0.593

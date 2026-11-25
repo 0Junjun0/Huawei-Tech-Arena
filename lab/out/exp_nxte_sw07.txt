@@ -1,0 +1,1 @@
+nxte_sw07 nxte {"sw": 0.07} full=0.819 skipstart=0.777 chunk600=0.702 chunk300=0.679 chunk180=0.649 chunk120=0.638 rand300=0.651 blend=0.702

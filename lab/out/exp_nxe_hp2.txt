@@ -1,0 +1,1 @@
+nxe_hp2 nxe {"sw": 0.1, "hp": {"n_estimators": 700, "learning_rate": 0.04, "num_leaves": 23, "min_child_samples": 60, "colsample_bytree": 0.35}} full=0.763 skipstart=0.750 chunk600=0.702 chunk300=0.680 chunk180=0.653 chunk120=0.635 rand300=0.652 blend=0.691

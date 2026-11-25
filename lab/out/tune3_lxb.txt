@@ -1,0 +1,6 @@
+default (0.648, 3, 1.0, 1.0)
+(0.6612, 9, 2.0, 1.3) full=0.714 skipstart=0.726 chunk600=0.691 chunk300=0.666 chunk180=0.614 chunk120=0.586 rand300=0.625 blend=0.660
+(0.6604, 7, 2.0, 1.3) full=0.715 skipstart=0.725 chunk600=0.690 chunk300=0.663 chunk180=0.612 chunk120=0.587 rand300=0.625 blend=0.659
+(0.6598, 9, 2.0, 1.15) full=0.715 skipstart=0.727 chunk600=0.689 chunk300=0.664 chunk180=0.611 chunk120=0.582 rand300=0.624 blend=0.659
+(0.6598, 9, 1.7, 1.3) full=0.714 skipstart=0.725 chunk600=0.692 chunk300=0.668 chunk180=0.611 chunk120=0.578 rand300=0.623 blend=0.659
+(0.6591, 7, 1.7, 1.3) full=0.714 skipstart=0.724 chunk600=0.693 chunk300=0.664 chunk180=0.611 chunk120=0.578 rand300=0.621 blend=0.658

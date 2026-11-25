@@ -1,0 +1,1 @@
+scenarios: ['full', 'skipstart', 'chunk300', 'chunk120', 'chunk60', 'chunk30', 'rand300']

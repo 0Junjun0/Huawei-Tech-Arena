@@ -1,0 +1,8 @@
+wrote /home/user/huawei-arena-work/submissions/_e2e  features=268  onnx=1297 KB  zip=235 KB
+e2e fold0 full: 0.791
+e2e fold0 skipstart: 0.788
+e2e fold0 chunk600: 0.710
+e2e fold0 chunk300: 0.709
+e2e fold0 chunk180: 0.622
+e2e fold0 chunk120: 0.606
+e2e fold0 rand300: 0.631

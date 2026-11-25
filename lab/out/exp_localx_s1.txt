@@ -1,0 +1,1 @@
+localx_s1 localx {"seed": 1, "sw": null, "train_sc": ["full"], "weights": [1, 1.8, 1.2], "smooth": 9} full=0.702 skipstart=0.716 chunk600=0.673 chunk300=0.654 chunk180=0.617 chunk120=0.597 rand300=0.632 blend=0.656

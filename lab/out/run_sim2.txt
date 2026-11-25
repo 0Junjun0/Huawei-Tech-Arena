@@ -1,0 +1,2 @@
+scenarios: ['full', 'skipstart', 'chunk600', 'chunk300', 'chunk180', 'chunk120', 'chunk60', 'rand300']
+bebe_time    {'full': 0.856, 'skipstart': 0.742, 'chunk600': 0.628, 'chunk300': 0.526, 'chunk180': 0.449, 'chunk120': 0.433, 'chunk60': 0.412, 'rand300': 0.476}

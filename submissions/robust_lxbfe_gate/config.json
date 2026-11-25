@@ -1,0 +1,44 @@
+{
+ "feat_kw": {
+  "use_time": false,
+  "local": true,
+  "extras": true,
+  "edge": 30,
+  "lbase": [
+   31,
+   61,
+   121
+  ],
+  "fb": [
+   3,
+   9,
+   18,
+   36
+  ]
+ },
+ "cache_key": "lxbfe",
+ "train_sc": [
+  "full",
+  "chunk600",
+  "chunk300",
+  "chunk180",
+  "chunk120"
+ ],
+ "sc_weight": {
+  "full": 1.0,
+  "chunk600": 0.3,
+  "chunk300": 0.3,
+  "chunk180": 0.3,
+  "chunk120": 0.3
+ },
+ "weights": [
+  1,
+  1.4,
+  0.8
+ ],
+ "smooth": 9,
+ "gate": [
+  2,
+  0.0
+ ]
+}

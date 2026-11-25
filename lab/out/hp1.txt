@@ -1,0 +1,3 @@
+localx full {"n_estimators": 800, "learning_rate": 0.025} full=0.706 skipstart=0.715 chunk600=0.675 chunk300=0.658 chunk180=0.624 chunk120=0.589 rand300=0.627 blend=0.656
+localx full {"num_leaves": 7, "n_estimators": 800} full=0.707 skipstart=0.717 chunk600=0.673 chunk300=0.652 chunk180=0.613 chunk120=0.577 rand300=0.622 blend=0.651
+localx full {"num_leaves": 31, "min_child_samples": 100} full=0.698 skipstart=0.708 chunk600=0.669 chunk300=0.654 chunk180=0.623 chunk120=0.585 rand300=0.622 blend=0.651
