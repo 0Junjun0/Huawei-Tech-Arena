@@ -367,3 +367,106 @@ Macro-F1: 0.5571 | Quality score: 44.57/80 | Est. Total: 62.45/100
 - **Execution time:** MET: 0.0348 s | Median: 0.0347 s | P95: 0.0464 s | Std: 0.0052 s | Peak RAM: 19.01 MB | ONNX size: 26.43 MB
 - **Estimated total competition score:** 62.01 / 100 (Quality: 44.33/80, Speed: 17.68/20)
 - **Conclusion:** Non-duplicate equivalence & 50-run checks PASSED (44 -> 44 features (dropped=none)); delta vs EXP-OPT-2-3..6: MET -0.0073 s, median -0.0076 s, P95 -0.0084 s, std -0.0010 s, RAM -3.87 MB; delta vs baseline: MET +0.0009 s, P95 +0.0065 s, RAM +0.20 MB; retain working baseline and submission.zip unchanged.
+
+<!-- Logged: 2026-11-24 23:39:44 (EXP-OPT-04..09) -->
+### EXP-OPT-04..09: Remaining Efficiency Suite (Vectorization, Conversions, Memory, ONNX, Complexity & Guards)
+- **Experiment ID:** EXP-OPT-04..09
+- **Hypothesis:** Benchmarking vectorized aggregation, float32 cast consolidation, buffer reuse, single-thread ONNX session overhead, model complexity/pruning under 5-fold GroupKFold, and monotonic/index guards clarifies remaining speed/size levers without altering the working baseline.
+- **Changes made:** Ran EXP-OPT-04..09 checks (vec diff=0.00e+00, ONNX-only MET=0.000206 s, 5-fold GroupKFold complexity check=True, index monotonic=True) and 50-run single-core benchmark while preserving baseline submission files.
+- **Files modified:** `run_remaining_opt_experiments.py`, `experiment_notes.md`
+- **Validation method:** Vector parity + single-thread ONNX check + 5-fold GroupKFold complexity check + 50-run run() benchmark (1 thread)
+- **Previous macro-F1:** EXP-OPT-03 0.5541 | Prior tuned ref 0.5809
+- **New macro-F1:** 0.5804 (RF_pruned 0.5804 | HGB_reg 0.5442)
+- **Per-class F1:** Rest: 0.6786 | Stress: 0.2635 | Activity: 0.7992
+- **Execution time:** MET: 0.0350 s | Median: 0.0343 s | P95: 0.0438 s | Std: 0.0049 s | Peak RAM: 19.05 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** 64.10 / 100 (Quality: 46.43/80, Speed: 17.67/20)
+- **Conclusion:** All EXP-OPT-04..09 checks PASSED; delta vs EXP-OPT-03: MET +0.0002 s, median -0.0004 s, P95 -0.0026 s, std -0.0003 s, RAM +0.04 MB; retain working baseline and submission.zip unchanged until any candidate beats both CV and runtime.
+
+<!-- Logged: 2026-11-24 23:50:51 (EXP-OPT-05) -->
+### EXP-OPT-05: Excessive Data Conversions Consolidation
+- **Experiment ID:** EXP-OPT-05
+- **Hypothesis:** Consolidating DataFrame/Series, DatetimeIndex timestamp, and NumPy float64/float32 conversions along run()—casting once to np.float32 right before ONNX input feeding—reduces conversion overhead and peak memory while preserving prediction parity.
+- **Changes made:** Consolidated data conversions along the run() path, verified prediction parity, and benchmarked 50 single-threaded runs on 1 CPU core without modifying baseline submission files.
+- **Files modified:** `bench_exp_opt_05.py`, `auto_log_experiment.py`, `experiment_notes.md`
+- **Validation method:** Prediction parity check + 50-run single-core run() benchmark (1 CPU core, threads=1, <=4 GB RAM, <=50 MB zip)
+- **Previous macro-F1:** EXP-OPT-04..09 ref 0.5804 | Prior tuned ref 0.5809
+- **New macro-F1:** 0.5804 (parity check PASSED)
+- **Per-class F1:** Rest: 0.6786 | Stress: 0.2635 | Activity: 0.7992
+- **Execution time:** MET: 0.1920 s | Median: 0.1981 s | P95: 0.2060 s | Std: 0.0221 s | Peak RAM: 19.06 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** 53.63 / 100 (Quality: 46.43/80, Speed: 7.20/20)
+- **Conclusion:** Peak RAM stayed 19.06 MB (<=4 GB) and parity passed, but 50-run MET was 0.1920 s (Est. total 53.63/100); retain baseline submission files unchanged.
+
+<!-- Logged: 2026-11-24 23:54:00 (EXP-OPT-06) -->
+### EXP-OPT-06: Unnecessary Memory Allocations & Buffer Reuse
+- **Experiment ID:** EXP-OPT-06
+- **Hypothesis:** Eliminating redundant DataFrame .copy() calls and allocating reusable fixed-size buffers (np.empty / np.zeros) instead of repeated temporary allocations lowers peak memory and reduces allocation overhead on 1 CPU core without mutating input DataFrames.
+- **Changes made:** Benchmarked before vs. after redundant .copy() calls and temporary allocations using preallocated buffers across 50 single-threaded runs, verified input DataFrame non-mutation, and checked <=4 GB RAM compliance without modifying baseline submission files.
+- **Files modified:** `bench_exp_opt_06.py`, `experiment_notes.md`
+- **Validation method:** Before/after 50-run single-core run() benchmark (1 CPU core, threads=1, <=4 GB RAM, <=50 MB zip) + input DataFrame mutation/safety check
+- **Previous macro-F1:** EXP-OPT-05 parity ref 0.5804 | EXP-OPT-04..09 ref 0.5804 | Prior tuned ref 0.5809
+- **New macro-F1:** 0.5804 (parity & input-mutation safety PASSED)
+- **Per-class F1:** Rest: 0.6786 | Stress: 0.2635 | Activity: 0.7992
+- **Execution time:** MET: 0.3436 s | Median: 0.3496 s | P95: 0.4048 s | Std: 0.0457 s | Peak RAM: 25.20 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** 46.43 / 100 (Quality: 46.43/80, Speed: 0.00/20)
+- **Conclusion:** Before MET: 0.1975 s (P95: 0.2276 s, Peak RAM: 26.13 MB) -> After MET: 0.3436 s (Median: 0.3496 s, P95: 0.4048 s, Std: 0.0457 s, Peak RAM: 25.20 MB, MaxRSS: 456.97 MB, well within 4 GB). Input mutation check: PASSED. Decision: Retain buffer-reuse/no-extra-copy pattern for candidate testing if MET/P95 and peak RAM stay strong; keep baseline submission_model.py, submission_model.onnx, and submission.zip untouched unless outperforming current baseline.
+
+<!-- Logged: 2026-11-24 23:55:41 (EXP-OPT-07) -->
+### EXP-OPT-07: ONNX Inference Overhead & Single-Thread Session Pinning
+- **Experiment ID:** EXP-OPT-07
+- **Hypothesis:** Explicitly pinning ort.SessionOptions (intra_op_num_threads=1, inter_op_num_threads=1, ORT_SEQUENTIAL, ORT_ENABLE_ALL) and exporting with zipmap=False (target_opset=15) reduces thread/conversion overhead while preserving exact probability parity and <=50 MB size.
+- **Changes made:** Benchmarked default vs. pinned single-thread ort.SessionOptions on ONNX inference and 50-run end-to-end run(), verified zipmap=False (target_opset=15) sklearn-vs-ONNX parity, and checked .onnx size without modifying baseline submission files.
+- **Files modified:** `bench_exp_opt_07.py`, `experiment_notes.md`
+- **Validation method:** Default vs. pinned 1-thread ONNX session benchmark + 50-run end-to-end run() benchmark (1 CPU core, threads=1, <=4 GB RAM, <=50 MB zip) + zipmap=False/opset=15 parity check
+- **Previous macro-F1:** EXP-OPT-06 parity ref 0.5804 | Prior tuned ref 0.5809
+- **New macro-F1:** 0.5804 (zipmap=False parity check PASSED)
+- **Per-class F1:** Rest: 0.6786 | Stress: 0.2635 | Activity: 0.7992
+- **Execution time:** MET: 0.0215 s | Median: 0.0220 s | P95: 0.0241 s | Std: 0.0021 s | Peak RAM: 19.06 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** 65.00 / 100 (Quality: 46.43/80, Speed: 18.57/20)
+- **Conclusion:** Session options: default vs. pinned (intra_op=1, inter_op=1, ORT_SEQUENTIAL, ORT_ENABLE_ALL) and zipmap=False (opset=15). Max sklearn-vs-ONNX prob diff: 5.96e-08. ONNX size: 26.43 MB (<=50 MB zip limit). ONNX session MET: default 0.000045 s (P95 0.000047 s) vs. pinned 0.000055 s (P95 0.000053 s); End-to-end 50-run run() MET: 0.0215 s (Median 0.0220 s, P95 0.0241 s, Std 0.0021 s). Retain pinned single-thread SessionOptions & zipmap=False in candidate builds; keep baseline files untouched.
+
+<!-- Logged: 2026-11-25 00:18:26 (EXP-OPT-08) -->
+### EXP-OPT-08: Model Complexity, Pruning & HistGradientBoosting Sweep
+- **Experiment ID:** EXP-OPT-08
+- **Hypothesis:** Pruning Random Forest complexity (depth, estimators, or min_samples_leaf) or testing HistGradientBoostingClassifier under subject-grouped CV can reduce ONNX model size and tree traversal overhead while preserving validation Macro-F1 and controlling overfitting.
+- **Changes made:** Varied one model-complexity factor at a time under 5-fold GroupKFold (max_depth=12, n_estimators=100, min_samples_leaf=8, and HistGradientBoostingClassifier) vs. the 200-tree depth-18 RF reference without modifying baseline submission files.
+- **Files modified:** `run_experiments.py`, `experiment_notes.md`
+- **Validation method:** 5-fold GroupKFold by subject ID + ONNX size/session timing + 50-run single-core end-to-end run() benchmark (1 CPU core, threads=1, <=4 GB RAM, <=50 MB zip)
+- **Previous macro-F1:** Ref RF Val Macro-F1: 0.5541 (Train: 0.9966, Gap: +0.4424)
+- **New macro-F1:** Best tested variant (RF_PruneDepth_d12) Val Macro-F1: 0.5753 (Train: 0.9282, Gap: +0.3529)
+- **Per-class F1:** Best variant (RF_PruneDepth_d12) — Rest: 0.6867 | Stress: 0.2420 | Activity: 0.7970
+- **Execution time:** MET: 0.0625 s | Median: 0.0613 s | P95: 0.1018 s | Std: 0.0203 s | Peak RAM: 19.06 MB | ONNX size: 13.57 MB
+- **Estimated total competition score:** 61.85 / 100 (Quality: 46.02/80, Speed: 15.83/20)
+- **Conclusion:** Sweep summary: RF_Ref_200_d18_l2 (Reference: n_estimators=200, max_depth=18, min_samples_leaf=2): Train=0.9966, Val=0.5541, Gap=+0.4424, F1[R/S/A]=0.6986/0.1651/0.7987, ONNX=26.43 MB, ORT MET=0.002355 s || RF_PruneDepth_d12 (Varied max_depth: 18 -> 12 (n_estimators=200, min_samples_leaf=2)): Train=0.9282, Val=0.5753, Gap=+0.3529, F1[R/S/A]=0.6867/0.2420/0.7970, ONNX=13.57 MB, ORT MET=0.001645 s || RF_PruneTrees_n100 (Varied n_estimators: 200 -> 100 (max_depth=18, min_samples_leaf=2)): Train=0.9954, Val=0.5526, Gap=+0.4428, F1[R/S/A]=0.6928/0.1714/0.7938, ONNX=13.01 MB, ORT MET=0.000930 s || RF_LeafReg_l8 (Varied min_samples_leaf: 2 -> 8 (n_estimators=200, max_depth=18)): Train=0.9360, Val=0.5708, Gap=+0.3652, F1[R/S/A]=0.6914/0.2239/0.7973, ONNX=12.71 MB, ORT MET=0.001779 s || HistGradientBoosting (Switched family: HistGradientBoostingClassifier(max_iter=150, lr=0.05, leaves=31, l2=1.0)): Train=0.9665, Val=0.5692, Gap=+0.3974, F1[R/S/A]=0.6828/0.2350/0.7897, ONNX=nan MB, ORT MET=nan s. 50-run end-to-end run() MET: 0.0625 s (P95: 0.1018 s). Retain/discard decision: Keep baseline submission_model.py, submission_model.onnx, and submission.zip untouched unless a pruned/HGB model clearly improves grouped Macro-F1 and total score.
+
+<!-- Logged: 2026-11-25 00:23:31 (EXP-OPT-09) -->
+### EXP-OPT-09: Repeated Preprocessing Operations & Constant Hoisting
+- **Experiment ID:** EXP-OPT-09
+- **Hypothesis:** Guarding pd.to_datetime() with `if not isinstance(idx, pd.DatetimeIndex)` and `.sort_index()` with `if not idx.is_monotonic_increasing`, while hoisting constant weight/label arrays to initialization, eliminates redundant preprocessing overhead on already-sorted DatetimeIndex inputs without breaking unsorted, non-datetime, or NaN inputs.
+- **Changes made:** Added guarded index conversion/sorting (`isinstance(..., pd.DatetimeIndex)` and `idx.is_monotonic_increasing`) and hoisted constant arrays to initialization; verified sorted DatetimeIndex, unsorted DatetimeIndex, non-datetime index, and NaN inputs across 50 single-core runs without modifying baseline submission files.
+- **Files modified:** `run_exp_opt_09.py`, `experiment_notes.md`
+- **Validation method:** 5-fold GroupKFold by subject ID + edge-case checks (sorted, unsorted, non-datetime, NaN) + 50-run single-core benchmark (1 CPU core, threads=1, <=4 GB RAM, <=50 MB zip)
+- **Previous macro-F1:** EXP-OPT-08 Best Val Macro-F1: 0.5753 (RF_PruneDepth_d12)
+- **New macro-F1:** Grouped Val Macro-F1: 0.5753 (Train: 0.9282, Gap: +0.3529)
+- **Per-class F1:** Rest: 0.6867 | Stress: 0.2420 | Activity: 0.7970
+- **Execution time:** MET: 0.1843 s | Median: 0.1927 s | P95: 0.1969 s | Std: 0.0184 s | Peak RAM: 19.07 MB | ONNX size: 26.43 MB
+- **Estimated total competition score:** 53.74 / 100 (Quality: 46.02/80, Speed: 7.72/20)
+- **Conclusion:** Guards/hoisted constants verified on edge cases (sorted_dt=PASS(rows=130571), unsorted_dt=PASS(rows=130571), non_dt_str=PASS(rows=130571), injected_nan=PASS(rows=130571)). 50-run single-core MET=0.1843 s, Median=0.1927 s, P95=0.1969 s, Std=0.0184 s, Peak RAM=19.07 MB. Retain/discard decision: Retain guarded preprocessing and hoisted constants; keep submission_model.py, submission_model.onnx, and submission.zip untouched.
+
+## 2026-11-25 00:36:55 — train_model
+
+```text
+Features: 42 | Samples: 14890 | Subjects: 35
+Raw OOF Macro-F1: 0.5504 (44.03/80)
+Tuned OOF Macro-F1: 0.5844 (46.75/80) | Weights: [0.949999988079071, 1.7999999523162842, 0.8500000238418579]
+ONNX size: 26.12 MB (26748.8 KB)
+- **Submission model:** `submission_model.py` + `submission_model.onnx`
+```
+
+## 2026-11-25 00:40:16 — metrics_audit
+
+```text
+Max prob diff (sklearn vs ONNX): 2.651912e-07
+MET: 0.0199 s | Speed score: 18.67/20
+Macro-F1: 0.5504 | Quality score: 44.03/80 | Est. Total: 62.70/100
+- **Submission model:** `submission_model.py` + `submission_model.onnx`
+```

@@ -15,7 +15,7 @@ SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
 def _compute_window_features(
     df: pd.DataFrame, win_sec: int = 10, ctx_sec: int = 40, long_ctx_sec: int = 60
 ) -> tuple[pd.DatetimeIndex, np.ndarray]:
-    work = df[SENSOR_COLS].copy()
+    work = df.reindex(columns=SENSOR_COLS).copy()
     if not isinstance(work.index, pd.DatetimeIndex):
         work.index = pd.to_datetime(work.index)
     if not work.index.is_monotonic_increasing:
@@ -46,14 +46,6 @@ def _compute_window_features(
     ).fillna(0.0)
     eda_swing_df = pd.DataFrame({"EDA_ctx60_swing": eda_long_swing}, index=mean_df.index)
 
-    hr_eda_diff_df = pd.DataFrame(
-        {
-            "HR_minus_ctx40": (mean_df["HR"] - ctx_mean_df["HR"]).fillna(0.0),
-            "EDA_minus_ctx40": (mean_df["EDA"] - ctx_mean_df["EDA"]).fillna(0.0),
-        },
-        index=mean_df.index,
-    )
-
     ibi_dt_diff_series = work["IBI_dt"].diff().abs().resample(rule).mean().fillna(0.0)
     extra_phys_df = pd.DataFrame(
         {
@@ -75,7 +67,6 @@ def _compute_window_features(
             ctx_mean_df.add_suffix("_ctx40_mean"),
             diff_ctx_df.add_suffix("_diff_ctx40"),
             eda_swing_df,
-            hr_eda_diff_df,
             extra_phys_df,
         ],
         axis=1,

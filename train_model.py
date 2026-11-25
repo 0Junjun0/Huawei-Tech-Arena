@@ -6,7 +6,6 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import classification_report, f1_score
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
 from log_results import log_safe
@@ -37,7 +36,7 @@ def map_phase_to_activity(phase_val) -> str | None:
 def extract_window_features(
     df: pd.DataFrame, win_sec: int = 10, ctx_sec: int = 40, long_ctx_sec: int = 60
 ) -> tuple[pd.DatetimeIndex, np.ndarray]:
-    work = df[SENSOR_COLS].copy()
+    work = df.reindex(columns=SENSOR_COLS).copy()
     if not isinstance(work.index, pd.DatetimeIndex):
         work.index = pd.to_datetime(work.index)
     if not work.index.is_monotonic_increasing:
@@ -68,14 +67,6 @@ def extract_window_features(
     ).fillna(0.0)
     eda_swing_df = pd.DataFrame({"EDA_ctx60_swing": eda_long_swing}, index=mean_df.index)
 
-    hr_eda_diff_df = pd.DataFrame(
-        {
-            "HR_minus_ctx40": (mean_df["HR"] - ctx_mean_df["HR"]).fillna(0.0),
-            "EDA_minus_ctx40": (mean_df["EDA"] - ctx_mean_df["EDA"]).fillna(0.0),
-        },
-        index=mean_df.index,
-    )
-
     ibi_dt_diff_series = work["IBI_dt"].diff().abs().resample(rule).mean().fillna(0.0)
     extra_phys_df = pd.DataFrame(
         {
@@ -97,7 +88,6 @@ def extract_window_features(
             ctx_mean_df.add_suffix("_ctx40_mean"),
             diff_ctx_df.add_suffix("_diff_ctx40"),
             eda_swing_df,
-            hr_eda_diff_df,
             extra_phys_df,
         ],
         axis=1,
@@ -114,11 +104,8 @@ def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
         df = pd.read_parquet(parquet_path)
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
-
-        for col in SENSOR_COLS:
-            if col not in df.columns:
-                df[col] = np.nan
+        if not df.index.is_monotonic_increasing:
+            df = df.sort_index()
 
         win_idx, X_win = extract_window_features(df, win_sec=win_sec)
 
@@ -164,7 +151,6 @@ def main():
         clf = Pipeline(
             [
                 ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
                 (
                     "rf",
                     RandomForestClassifier(

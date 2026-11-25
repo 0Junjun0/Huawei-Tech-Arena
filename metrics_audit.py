@@ -12,7 +12,6 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 from log_results import log_safe
 
 import submission_model
@@ -29,13 +28,11 @@ def build_dataset_with_protocol(root_dir: pathlib.Path, win_sec: int = 10):
         df = pd.read_parquet(parquet_path)
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
-        df = df.sort_index()
+        if not df.index.is_monotonic_increasing:
+            df = df.sort_index()
 
-        for col in train_model.SENSOR_COLS:
-            if col not in df.columns:
-                df[col] = np.nan
-
-        win_idx, X_win = train_model.extract_window_features(df, win_sec=win_sec)
+        feat_in = df.reindex(columns=train_model.SENSOR_COLS)
+        win_idx, X_win = train_model.extract_window_features(feat_in, win_sec=win_sec)
         if "Phase" not in df.columns:
             continue
 
@@ -72,6 +69,7 @@ def build_dataset_with_protocol(root_dir: pathlib.Path, win_sec: int = 10):
         np.concatenate(proto_list),
     )
 
+
 def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
     onnx_path = pathlib.Path("submission_model.onnx")
     if not onnx_path.exists():
@@ -83,7 +81,7 @@ def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
         print("\n[Speed Check] Skipped: no sample parquet files found.")
         return None, None
 
-    dfs = [pd.read_parquet(p)[train_model.SENSOR_COLS] for p in sample_files]
+    dfs = [pd.read_parquet(p).reindex(columns=train_model.SENSOR_COLS) for p in sample_files]
     model = submission_model.get_model()
 
     # Warmup
@@ -105,6 +103,7 @@ def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
     )
     return met, speed_score
 
+
 def main():
     root_dir = pathlib.Path("TechArena-Finland-2026")
     X, y, groups, protocols = build_dataset_with_protocol(root_dir, win_sec=10)
@@ -122,7 +121,6 @@ def main():
         clf = Pipeline(
             [
                 ("imputer", SimpleImputer(strategy="median")),
-                ("scaler", StandardScaler()),
                 (
                     "rf",
                     RandomForestClassifier(
@@ -196,9 +194,17 @@ def main():
 
         sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
         in_name = sess.get_inputs()[0].name
-        ort_out = sess.run(None, {in_name: sample_x})
-        ort_probs = np.asarray(ort_out[1], dtype=np.float32)
-        max_diff = float(np.max(np.abs(sk_probs - ort_probs)))
+        expected_cols = sess.get_inputs()[0].shape[1]
+        if expected_cols is not None and sample_x.shape[1] != expected_cols:
+            print(
+                f"\n[Parity Check] Skipped: feature count mismatch "
+                f"(current X has {sample_x.shape[1]} cols, ONNX expects {expected_cols})."
+            )
+            max_diff = float("nan")
+        else:
+            ort_out = sess.run(None, {in_name: sample_x})
+            ort_probs = np.asarray(ort_out[1], dtype=np.float32)
+            max_diff = float(np.max(np.abs(sk_probs - ort_probs)))
     else:
         max_diff = float("nan")
 

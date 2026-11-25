@@ -15,8 +15,8 @@ import time
 import tracemalloc
 import zipfile
 import numpy as np
-import pandas as pd
 import onnxruntime as ort
+import pandas as pd
 
 WORK_DIR = pathlib.Path(__file__).resolve().parent
 DATA_KIT_DIR = WORK_DIR / "TechArena-Finland-2026"
@@ -68,10 +68,11 @@ def check_onnx_contract(onnx_path: pathlib.Path) -> None:
     print(f"ONNX Outputs: {[(o.name, o.shape, o.type) for o in outputs]}")
     assert "float" in inp.type.lower(), f"Expected float input tensor, got {inp.type}"
 
-    n_feats = inp.shape[1] if (len(inp.shape) == 2 and isinstance(inp.shape[1], int)) else 44
+    n_feats = inp.shape[1] if (len(inp.shape) == 2 and isinstance(inp.shape[1], int)) else 42
     dummy = np.zeros((5, n_feats), dtype=np.float32)
     res = sess.run(None, {inp.name: dummy})
     assert len(res) >= 1 and len(res[0]) == 5, "Unexpected ONNX output shape"
+
 
 def resolve_base_class_path() -> pathlib.Path:
     candidates = [
@@ -130,10 +131,11 @@ def check_package_load_and_adm_base(zip_path: pathlib.Path, base_path: pathlib.P
             if str(tmp_path) in sys.path:
                 sys.path.remove(str(tmp_path))
 
+
 def validate_output_df(out: pd.DataFrame, input_df: pd.DataFrame) -> None:
     assert isinstance(out, pd.DataFrame), "run() must return a pd.DataFrame"
     assert list(out.columns) == ["Activity"], f"Expected ['Activity'], got {list(out.columns)}"
-    assert len(out) > 0, "Output DataFrame is empty"
+    assert len(out) == len(input_df), f"Expected {len(input_df)} rows, got {len(out)}"
     assert not out["Activity"].isna().any(), "Output contains NaN labels"
     unique_vals = set(out["Activity"].unique())
     assert unique_vals.issubset(VALID_LABELS), f"Invalid labels produced: {unique_vals - VALID_LABELS}"
@@ -196,6 +198,7 @@ def run_end_to_end_tests_and_benchmark(model) -> None:
     )
     print(f"Estimated Speed Score (0.3s cap): {speed_pts:.2f} / 20.00")
 
+
 def check_validation_and_efficiency(model) -> None:
     print("\n=== 5. Validation & Single-Core Efficiency Gate ===")
     data_dir = DATA_KIT_DIR / "data" if (DATA_KIT_DIR / "data").exists() else WORK_DIR / "data"
@@ -237,6 +240,7 @@ def check_validation_and_efficiency(model) -> None:
     assert peak_mb <= 4096.0, f"Peak RAM {peak_mb:.2f} MB > 4096 MB limit"
     assert onnx_mb <= 50.0, f"ONNX size {onnx_mb:.2f} MB > 50 MB limit"
 
+
 def main() -> None:
     zip_path = check_files_and_zip()
     check_onnx_contract(WORK_DIR / "submission_model.onnx")
@@ -245,6 +249,7 @@ def main() -> None:
     run_end_to_end_tests_and_benchmark(model)
     check_validation_and_efficiency(model)
     print("\nALL AUDIT & END-TO-END CHECKS PASSED.")
+
 
 if __name__ == "__main__":
     main()
