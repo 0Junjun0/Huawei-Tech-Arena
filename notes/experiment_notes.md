@@ -470,3 +470,36 @@ MET: 0.0199 s | Speed score: 18.67/20
 Macro-F1: 0.5504 | Quality score: 44.03/80 | Est. Total: 62.70/100
 - **Submission model:** `submission_model.py` + `submission_model.onnx`
 ```
+
+## 2026-11-25 01:36:14 — metrics_audit
+
+```text
+Max prob diff (sklearn vs ONNX): 2.651912e-07
+MET: 0.0212 s | Speed score: 18.59/20
+Macro-F1: 0.5504 | Quality score: 44.03/80 | Est. Total: 62.62/100
+- **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`
+```
+
+## 2026-11-25 01:38:38 — train_model
+
+```text
+Features: 42 | Samples: 14890 | Subjects: 35
+Raw OOF Macro-F1: 0.5504 (44.03/80)
+Tuned OOF Macro-F1: 0.5844 (46.75/80) | Weights: [0.949999988079071, 1.7999999523162842, 0.8500000238418579]
+ONNX size: 26.12 MB (26748.8 KB)
+- **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`
+```
+
+<!-- Logged: 2026-11-25 01:55:20 (EXP-BLEND-42) -->
+### EXP-BLEND-42: 0.5 RF + 0.5 HGB Probability Blend on 42 Features (Isolated Folder)
+- **Experiment ID:** EXP-BLEND-42
+- **Hypothesis:** Averaging calibrated/balanced class probabilities from RandomForestClassifier and HistGradientBoostingClassifier on the 42-feature pipeline improves grouped OOF Macro-F1 over each standalone model.
+- **Changes made:** Created isolated blend_exp/run_blend_42.py running 5-fold GroupKFold on the 42-feature dataset with 0.5 RF + 0.5 HGB probability blending while keeping submission/ untouched.
+- **Files modified:** `blend_exp/__init__.py`, `blend_exp/run_blend_42.py`, `notes/experiment_notes.md`
+- **Validation method:** 5-fold GroupKFold across 35 subjects (14,890 windows, 42 features, 1 thread)
+- **Previous macro-F1:** RF-42: Raw 0.5504 / Tuned 0.5859 | HGB-42: Raw 0.5665 / Tuned 0.5777
+- **New macro-F1:** Raw 0.5684 | Tuned 0.5882 (weights [1.0, 1.85, 1.0])
+- **Per-class F1:** Rest: 0.7013 | Stress: 0.2006 | Activity: 0.8033
+- **Execution time:** Peak RAM: 33.12 MB | ONNX size: 26.12 MB
+- **Estimated total competition score:** N/A
+- **Conclusion:** Blend reached Raw 0.5684 and Tuned 0.5882 (5-fold fit 105.16s); HGB still faces skl2onnx export constraints and dual-model inference adds latency overhead, so keep submission/ baseline untouched until ONNX/speed trade-offs are checked.
