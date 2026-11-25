@@ -105,7 +105,7 @@ def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
             if col not in df.columns:
                 df[col] = np.nan
 
-        win_idx, X_win = extract_window_features(df, win_sec=win_sec, ctx_sec=30)
+        win_idx, X_win = extract_window_features(df, win_sec=win_sec, ctx_sec=40, long_ctx_sec=60)
 
         if "Phase" not in df.columns:
             continue
