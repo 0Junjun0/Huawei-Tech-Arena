@@ -1,6 +1,6 @@
 # Huawei Tech Arena 2026 - Project & Experimentation README
 
-*Last updated:* `2026-11-24 22:21:29`
+*Last updated:* `2026-11-25 19:05:20`
 
 ## 1. Task & Competition Overview
 - **Target States:** `Rest/recovery` (`Rest`), `Acute Stress` (`Stress`), and `Physical Activity` (`Activity`).
@@ -13,17 +13,19 @@
   - Submission rules: up to 3 submissions per team per day; best valid submission counts; update via **View your participations** -> **Model (.zip)**.
 
 ## 2. Current Local Files & Artifacts
-- `train_model.py` (9.2 KB)
-- `submission_model.py` (5.7 KB)
-- `submission_model.onnx` (27060.5 KB)
-- `adm_base_class.py` (1.3 KB)
-- `metrics_audit.py` (7.9 KB)
-- `run_experiments.py` (5.8 KB)
-- `log_results.py` (1.4 KB)
-- `summarize_for_chat.py` (2.8 KB)
-- `update_readme.py` (5.6 KB)
-- `experiment_notes.md` (3.0 KB)
-- `submission.zip` (1.58 MB ZIP)
+- `src/train_model.py` (11.5 KB)
+- `src/log_results.py` (2.6 KB)
+- `src/auto_log_experiment.py` (5.0 KB)
+- `src/summarize_for_chat.py` (3.3 KB)
+- `src/update_readme.py` (6.4 KB)
+- `experiments/run_experiments.py` (9.4 KB)
+- `experiments/metrics_audit.py` (8.7 KB)
+- `experiments/audit_pipeline.py` (10.2 KB)
+- `experiments/benchmark_run.py` (1.3 KB)
+- `submission/submission_model.py` (5.4 KB)
+- `submission/submission_model.onnx` (26748.8 KB)
+- `notes/experiment_notes.md` (46.4 KB)
+- `submission/submission.zip` (3.40 MB ZIP)
 
 ## 3. Dataset & Subject Metadata Snapshot
 ### Phases-to-Activity Mapping (`phases_to_activity.txt`)
@@ -99,11 +101,11 @@ V2: Second version of the protocol,,,,,,,,,
 2. **Validation Framework (No Leakage):**
    - Random stratified split (diagnostic baseline only - never used to optimize models).
    - Subject-grouped cross-validation (`GroupKFold` by subject ID) and Leave-One-Subject-Out (`LOSO`) where feasible.
-   - Protocol-grouped validation where dataset structure permits.
+   - Protocol-grouped validation where dataset structure supports it.
    - Preprocessing and feature fitting restricted to training splits without subject leakage.
 3. **Metrics Reported:** Overall Macro-F1, per-class precision/recall/F1 (`Rest`, `Stress`, `Activity`), confusion matrices, per-subject and per-protocol performance, and mean/standard deviation across validation folds.
 4. **Controlled Experimentation & Inference Profiling:**
-   - Single-variable changes while preserving the working baseline and logging runs to `experiment_notes.md`.
+   - Single-variable changes while preserving the working baseline and logging runs to `notes/experiment_notes.md`.
    - End-to-end `run()` timing (`mean`, `median`, `P95`, `std`), peak memory, `.onnx` file size, and `sklearn` vs. ONNX parity checks under single-thread settings.
 
 ## 5. Recent Experiment Notes Summary
@@ -194,4 +196,13 @@ Max prob diff (sklearn vs ONNX): 2.187986e-07
 MET: 0.0317 s | Speed score: 17.89/20
 Macro-F1: 0.5571 | Quality score: 44.57/80 | Est. Total: 62.45/100
 ```
+
+## 2026-11-24 22:41:03 — EXP-OPT-01
+
+```text
+### EXP-OPT-01: Feature Extraction Bottlenecks (Resample & Rolling Overhead)
+- **Experiment ID:** EXP-OPT-01
+- **Hypothesis:** Streamlining repeated .resample("10s") and .rolling(...) calls over high-rate sensor series reduces feature extraction time inside run() without affecting numerical parity or classification quality.
+- **Changes made:** Streamlined feature extraction in _compute_window_features to avoid u
+... [truncated]
 ```

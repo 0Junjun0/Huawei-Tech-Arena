@@ -523,3 +523,22 @@ Tuned OOF Macro-F1: 0.5844 (46.75/80) | Weights: [0.949999988079071, 1.799999952
 ONNX size: 26.12 MB (26748.8 KB)
 - **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`
 ```
+
+## 2026-11-25 19:09:38 — RandomForest (42 features)
+
+```text
+Features: 42 | Samples: 14890 | Subjects: 35
+Raw OOF Macro-F1: 0.5504 (44.03/80)
+Tuned OOF Macro-F1: 0.5859 (46.87/80) | Weights: [0.8999999761581421, 1.899999976158142, 0.8500000238418579]
+ONNX size: 26.12 MB
+- **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`
+```
+
+## 2026-11-25 19:13:49 — metrics_audit
+
+```text
+Max prob diff (sklearn vs ONNX): 2.651912e-07
+MET: 0.0374 s | Speed score: 17.50/20
+Macro-F1: 0.5504 | Quality score: 44.03/80 | Est. Total: 61.54/100
+- **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`
+```

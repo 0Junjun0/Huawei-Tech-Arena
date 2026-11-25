@@ -1,7 +1,17 @@
+import os
 import pathlib
 import sys
+import warnings
 import numpy as np
 import pandas as pd
+
+# Enforce single-threaded CPU execution for reproducible benchmarks
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import classification_report, f1_score
@@ -10,17 +20,26 @@ from sklearn.pipeline import Pipeline
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
 
+warnings.filterwarnings("ignore")
+
+# Define path anchors relative to repository layout
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
-NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026" / "data"
+if not DATA_DIR.exists():
+    DATA_DIR = ROOT_DIR / "data"
+
 SUBMISSION_DIR = ROOT_DIR / "submission"
+NOTES_FILE = ROOT_DIR / "notes" / "experiment_notes.md"
 
-for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR):
-    if p.exists() and str(p) not in sys.path:
-        sys.path.insert(0, str(p))
+sys.path.insert(0, str(ROOT_DIR))
+sys.path.insert(0, str(ROOT_DIR / "src"))
+try:
+    from log_results import log_safe
+except ImportError:
+    def log_safe(*args, **kwargs):
+        pass
 
-from log_results import log_safe
-
+SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
 LABELS = ["Rest", "Stress", "Activity"]
 LABEL_TO_IDX = {label: i for i, label in enumerate(LABELS)}
 
@@ -28,10 +47,9 @@ STRESS_PHASES = {"stroop", "tmct", "real opinion", "opposite opinion", "subtract
 ACTIVITY_PHASES = {"warm-up", "sprint", "cooldown"}
 REST_PHASES = {"baseline", "rest"}
 
-SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
-
 
 def map_phase_to_activity(phase_val) -> str | None:
+    """Map raw phase strings to target activities using set rules and 'rpm' substring matching."""
     if pd.isna(phase_val):
         return None
     low = str(phase_val).strip().lower()
@@ -47,11 +65,16 @@ def map_phase_to_activity(phase_val) -> str | None:
 def extract_window_features(
     df: pd.DataFrame, win_sec: int = 10, ctx_sec: int = 40, long_ctx_sec: int = 60
 ) -> tuple[pd.DatetimeIndex, np.ndarray]:
+    """
+    Deduplicated 42-feature extraction pipeline matching submission_model.py exactly.
+    """
     work = df.reindex(columns=SENSOR_COLS).copy()
+
     if not isinstance(work.index, pd.DatetimeIndex):
         work.index = pd.to_datetime(work.index)
     if not work.index.is_monotonic_increasing:
         work = work.sort_index()
+
     work = work.ffill().bfill().fillna(0.0)
 
     rule = f"{win_sec}s"
@@ -61,30 +84,46 @@ def extract_window_features(
     std_df = g.std().fillna(0.0)
     min_df = g.min().fillna(0.0)
     max_df = g.max().fillna(0.0)
-    ptp_df = max_df - min_df
+    ptp_df = (max_df - min_df).fillna(0.0)
     delta_df = mean_df.diff().fillna(0.0)
 
-    ibi_diff_series = work["IBI_duration"].diff().abs().resample(rule).mean().fillna(0.0)
-    ibi_diff_df = pd.DataFrame({"IBI_duration_abs_diff": ibi_diff_series}, index=mean_df.index)
+    ibi_diff_series = (
+        work["IBI_duration"].diff().abs().resample(rule).mean().fillna(0.0)
+    )
+    ibi_diff_df = pd.DataFrame(
+        {"IBI_duration_abs_diff": ibi_diff_series}, index=mean_df.index
+    )
 
     ctx_periods = max(1, ctx_sec // win_sec)
-    ctx_mean_df = mean_df.rolling(ctx_periods, min_periods=1).mean()
-    diff_ctx_df = mean_df - ctx_mean_df
+    ctx_mean_df = mean_df.rolling(ctx_periods, min_periods=1).mean().fillna(0.0)
+    diff_ctx_df = (mean_df - ctx_mean_df).fillna(0.0)
 
     long_periods = max(1, long_ctx_sec // win_sec)
     eda_long_swing = (
         max_df["EDA"].rolling(long_periods, min_periods=1).max()
         - min_df["EDA"].rolling(long_periods, min_periods=1).min()
     ).fillna(0.0)
-    eda_swing_df = pd.DataFrame({"EDA_ctx60_swing": eda_long_swing}, index=mean_df.index)
+    eda_swing_df = pd.DataFrame(
+        {"EDA_ctx60_swing": eda_long_swing}, index=mean_df.index
+    )
 
-    ibi_dt_diff_series = work["IBI_dt"].diff().abs().resample(rule).mean().fillna(0.0)
+    ibi_dt_diff_series = (
+        work["IBI_dt"].diff().abs().resample(rule).mean().fillna(0.0)
+    )
     extra_phys_df = pd.DataFrame(
         {
-            "HR_std_ctx40": mean_df["HR"].rolling(ctx_periods, min_periods=1).std().fillna(0.0),
-            "EDA_std_ctx40": mean_df["EDA"].rolling(ctx_periods, min_periods=1).std().fillna(0.0),
+            "HR_std_ctx40": mean_df["HR"]
+            .rolling(ctx_periods, min_periods=1)
+            .std()
+            .fillna(0.0),
+            "EDA_std_ctx40": mean_df["EDA"]
+            .rolling(ctx_periods, min_periods=1)
+            .std()
+            .fillna(0.0),
             "IBI_dt_abs_diff": ibi_dt_diff_series,
-            "Temp_diff_ctx40": (mean_df["Temperature"] - ctx_mean_df["Temperature"]).fillna(0.0),
+            "Temp_diff_ctx40": (
+                mean_df["Temperature"] - ctx_mean_df["Temperature"]
+            ).fillna(0.0),
         },
         index=mean_df.index,
     )
@@ -103,14 +142,23 @@ def extract_window_features(
         ],
         axis=1,
     )
+
     return feat_df.index, feat_df.to_numpy(dtype=np.float32)
 
 
-def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
-    X_list, y_list, groups_list = [], [], []
-    data_dir = root_dir / "data" if (root_dir / "data").exists() else root_dir
+def build_dataset(
+    data_dir: pathlib.Path, win_sec: int = 10
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Traverse protocol directories, extract features, and map window modes to target activities.
+    """
+    parquet_files = sorted(data_dir.rglob("*.parquet"))
+    if not parquet_files:
+        raise FileNotFoundError(f"No .parquet files found in {data_dir}")
 
-    for parquet_path in sorted(data_dir.rglob("*.parquet")):
+    X_list, y_list, groups_list = [], [], []
+
+    for parquet_path in parquet_files:
         subject_id = parquet_path.stem
         df = pd.read_parquet(parquet_path)
         if not isinstance(df.index, pd.DatetimeIndex):
@@ -140,77 +188,57 @@ def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
         if not np.any(keep):
             continue
 
-        y_win = np.array([LABEL_TO_IDX[lbl] for lbl in bin_labels.iloc[keep]], dtype=np.int64)
+        y_win = np.array(
+            [LABEL_TO_IDX[lbl] for lbl in bin_labels.iloc[keep]], dtype=np.int64
+        )
         X_list.append(X_win[keep])
         y_list.append(y_win)
         groups_list.append(np.full(len(y_win), subject_id))
 
+    if not X_list:
+        raise ValueError(
+            f"Failed to extract samples from {data_dir}. Check if parquet files contain valid Phase entries."
+        )
+
     return np.vstack(X_list), np.concatenate(y_list), np.concatenate(groups_list)
 
 
-def main():
-    root_dir = DATA_DIR
-    X, y, groups = build_dataset(root_dir, win_sec=10)
-    print(f"Dataset shape: X={X.shape}, y={y.shape}, unique_subjects={len(np.unique(groups))}")
-
-    n_splits = min(5, len(np.unique(groups)))
-    gkf = GroupKFold(n_splits=n_splits)
-    oof_preds = np.zeros(len(y), dtype=int)
-    oof_probs = np.zeros((len(y), 3), dtype=np.float32)
-
-    for fold, (tr_idx, va_idx) in enumerate(gkf.split(X, y, groups)):
-        clf = Pipeline(
-            [
-                ("imputer", SimpleImputer(strategy="median")),
-                (
-                    "rf",
-                    RandomForestClassifier(
-                        n_estimators=200,
-                        max_depth=18,
-                        min_samples_leaf=2,
-                        class_weight="balanced_subsample",
-                        random_state=42 + fold,
-                        n_jobs=-1,
-                    ),
-                ),
-            ]
-        )
-        clf.fit(X[tr_idx], y[tr_idx])
-
-        raw_probs = clf.predict_proba(X[va_idx])
-        mapped_probs = np.zeros((len(va_idx), 3), dtype=np.float32)
-        for col_idx, cls_val in enumerate(clf.classes_):
-            mapped_probs[:, int(cls_val)] = raw_probs[:, col_idx]
-
-        oof_probs[va_idx] = mapped_probs
-        oof_preds[va_idx] = np.argmax(mapped_probs, axis=1)
-
-    macro_f1 = f1_score(y, oof_preds, average="macro", zero_division=0)
-    print(f"OOF Macro-F1: {macro_f1:.4f} | Estimated Challenge Score: {macro_f1 * 80:.2f} / 80")
-    print("\nPer-class breakdown:")
-    print(classification_report(y, oof_preds, target_names=LABELS, digits=4, zero_division=0))
-
-    best_f1 = macro_f1
+def search_class_weights(
+    oof_probs: np.ndarray, y_true: np.ndarray
+) -> tuple[list[float], float]:
+    """Search multiplier grid for out-of-fold probability scaling to maximize Macro-F1."""
     best_weights = np.array([1.0, 1.0, 1.0], dtype=np.float32)
+    best_f1 = f1_score(y_true, np.argmax(oof_probs, axis=1), average="macro", zero_division=0)
 
-    for w_stress in np.arange(1.00, 1.85, 0.10):
-        for w_rest in [0.95, 1.00, 1.05]:
-            for w_act in [0.85, 0.90, 0.95, 1.00]:
+    for w_stress in np.arange(1.00, 1.95, 0.05):
+        for w_rest in [0.90, 0.95, 1.00, 1.05]:
+            for w_act in [0.80, 0.85, 0.90, 0.95, 1.00]:
                 weights = np.array([w_rest, w_stress, w_act], dtype=np.float32)
-                cand_preds = np.argmax(oof_probs * weights, axis=1)
-                cand_f1 = f1_score(y, cand_preds, average="macro", zero_division=0)
-                if cand_f1 > best_f1:
-                    best_f1 = cand_f1
+                preds = np.argmax(oof_probs * weights, axis=1)
+                macro_f1 = f1_score(y_true, preds, average="macro", zero_division=0)
+                if macro_f1 > best_f1:
+                    best_f1 = macro_f1
                     best_weights = weights
 
+    return [float(w) for w in best_weights], float(best_f1)
+
+
+def train_and_export() -> None:
+    """Execute subject-grouped CV training, optimize class weights, and export ONNX model."""
+    print("=== Training Pipeline: 42-Feature Random Forest ===")
+    X, y, groups = build_dataset(DATA_DIR, win_sec=10)
+    n_samples, n_features = X.shape
+    unique_subjects = len(np.unique(groups))
     print(
-        f"Tuned OOF Macro-F1: {best_f1:.4f} "
-        f"(Est. {best_f1 * 80:.2f} / 80) | "
-        f"Best weights [Rest, Stress, Activity]: {[round(float(w), 4) for w in best_weights]}"
+        f"Features: {n_features} | Samples: {n_samples} | Subjects: {unique_subjects}"
     )
 
-    final_model = Pipeline(
-        [
+    n_splits = min(5, unique_subjects)
+    gkf = GroupKFold(n_splits=n_splits)
+    oof_probs = np.zeros((n_samples, len(LABELS)), dtype=np.float32)
+
+    for fold, (train_idx, val_idx) in enumerate(gkf.split(X, y, groups)):
+        model_fold = Pipeline([
             ("imputer", SimpleImputer(strategy="median")),
             (
                 "rf",
@@ -219,38 +247,104 @@ def main():
                     max_depth=18,
                     min_samples_leaf=2,
                     class_weight="balanced_subsample",
-                    random_state=42,
+                    random_state=42 + fold,
                     n_jobs=-1,
                 ),
             ),
-        ]
-    )
-    final_model.fit(X, y)
+        ])
 
-    rf_step = final_model.named_steps["rf"]
-    initial_type = [("float_input", FloatTensorType([None, X.shape[1]]))]
+        model_fold.fit(X[train_idx], y[train_idx])
+        raw_probs = model_fold.predict_proba(X[val_idx])
+        mapped_probs = np.zeros((len(val_idx), 3), dtype=np.float32)
+        rf_clf = model_fold.named_steps["rf"]
+        for col_idx, cls_val in enumerate(rf_clf.classes_):
+            mapped_probs[:, int(cls_val)] = raw_probs[:, col_idx]
+
+        oof_probs[val_idx] = mapped_probs
+
+    # 1. Raw OOF Performance
+    raw_oof_preds = np.argmax(oof_probs, axis=1)
+    raw_macro_f1 = f1_score(y, raw_oof_preds, average="macro", zero_division=0)
+    raw_quality_score = raw_macro_f1 * 80.0
+
+    print("\n--- Raw Out-Of-Fold Classification Report ---")
+    print(
+        classification_report(
+            y, raw_oof_preds, target_names=LABELS, digits=4, zero_division=0
+        )
+    )
+    print(
+        f"Raw OOF Macro-F1: {raw_macro_f1:.4f} (Quality Score:"
+        f" {raw_quality_score:.2f} / 80)"
+    )
+
+    # 2. Probability Weight Tuning
+    best_weights, tuned_macro_f1 = search_class_weights(oof_probs, y)
+    tuned_quality_score = tuned_macro_f1 * 80.0
+    print(
+        f"\nTuned OOF Macro-F1: {tuned_macro_f1:.4f} (Quality Score:"
+        f" {tuned_quality_score:.2f} / 80)"
+    )
+    print(
+        "Optimized Class Multipliers [Rest, Stress, Activity]:"
+        f" {best_weights}"
+    )
+
+    # 3. Fit Final Production Model on Full Dataset
+    print("\nFitting final model on full dataset...")
+    final_pipeline = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        (
+            "rf",
+            RandomForestClassifier(
+                n_estimators=200,
+                max_depth=18,
+                min_samples_leaf=2,
+                class_weight="balanced_subsample",
+                random_state=42,
+                n_jobs=-1,
+            ),
+        ),
+    ])
+    final_pipeline.fit(X, y)
+
+    # 4. Export ONNX Model to submission/ directory and repository root
+    SUBMISSION_DIR.mkdir(parents=True, exist_ok=True)
+    onnx_path_sub = SUBMISSION_DIR / "submission_model.onnx"
+    onnx_path_root = ROOT_DIR / "submission_model.onnx"
+
+    initial_type = [("float_input", FloatTensorType([None, n_features]))]
+    rf_step = final_pipeline.named_steps["rf"]
     onnx_model = convert_sklearn(
-        final_model,
+        final_pipeline,
         initial_types=initial_type,
         options={id(rf_step): {"zipmap": False}},
         target_opset=15,
     )
-    SUBMISSION_DIR.mkdir(parents=True, exist_ok=True)
-    out_onnx = SUBMISSION_DIR / "submission_model.onnx"
-    out_onnx.write_bytes(onnx_model.SerializeToString())
-    print(f"Saved updated ONNX model to {out_onnx} ({out_onnx.stat().st_size / 1024:.1f} KB)")
 
-    onnx_size_mb = out_onnx.stat().st_size / (1024 * 1024)
+    model_bytes = onnx_model.SerializeToString()
+    onnx_path_sub.write_bytes(model_bytes)
+    onnx_path_root.write_bytes(model_bytes)
 
-    summary = "\n".join([
-        f"Features: {X.shape[1]} | Samples: {len(y)} | Subjects: {len(np.unique(groups))}",
-        f"Raw OOF Macro-F1: {macro_f1:.4f} ({macro_f1 * 80:.2f}/80)",
-        f"Tuned OOF Macro-F1: {best_f1:.4f} ({best_f1 * 80:.2f}/80) | Weights: {best_weights.tolist()}",
-        f"ONNX size: {onnx_size_mb:.2f} MB ({out_onnx.stat().st_size / 1024:.1f} KB)",
+    onnx_size_mb = len(model_bytes) / (1024 * 1024)
+    print(
+        f"ONNX Model successfully exported to: {onnx_path_sub}"
+        f" ({onnx_size_mb:.2f} MB)"
+    )
+
+    # 5. Log Run to experiment_notes.md
+    summary_text = "\n".join([
+        f"Features: {n_features} | Samples: {n_samples} | Subjects: {unique_subjects}",
+        f"Raw OOF Macro-F1: {raw_macro_f1:.4f} ({raw_quality_score:.2f}/80)",
+        f"Tuned OOF Macro-F1: {tuned_macro_f1:.4f} ({tuned_quality_score:.2f}/80) | Weights: {best_weights}",
+        f"ONNX size: {onnx_size_mb:.2f} MB",
     ])
-    print(summary)
-    log_safe("train_model", summary, notes_file=NOTES_PATH)
+    log_safe(
+        run_name="RandomForest (42 features)",
+        summary_text=summary_text,
+        notes_file=NOTES_FILE,
+    )
 
 
 if __name__ == "__main__":
-    main()
+    train_and_export()
