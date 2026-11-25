@@ -1,4 +1,5 @@
 import pathlib
+import sys
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -8,6 +9,16 @@ from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
 from log_results import log_safe
 
 LABELS = ["Rest", "Stress", "Activity"]
@@ -97,7 +108,7 @@ def extract_window_features(
 
 def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
     X_list, y_list, groups_list = [], [], []
-    data_dir = root_dir / "data"
+    data_dir = root_dir / "data" if (root_dir / "data").exists() else root_dir
 
     for parquet_path in sorted(data_dir.rglob("*.parquet")):
         subject_id = parquet_path.stem
@@ -138,7 +149,7 @@ def build_dataset(root_dir: pathlib.Path, win_sec: int = 10):
 
 
 def main():
-    root_dir = pathlib.Path("TechArena-Finland-2026")
+    root_dir = DATA_DIR
     X, y, groups = build_dataset(root_dir, win_sec=10)
     print(f"Dataset shape: X={X.shape}, y={y.shape}, unique_subjects={len(np.unique(groups))}")
 
@@ -224,7 +235,8 @@ def main():
         options={id(rf_step): {"zipmap": False}},
         target_opset=15,
     )
-    out_onnx = pathlib.Path("submission_model.onnx")
+    SUBMISSION_DIR.mkdir(parents=True, exist_ok=True)
+    out_onnx = SUBMISSION_DIR / "submission_model.onnx"
     out_onnx.write_bytes(onnx_model.SerializeToString())
     print(f"Saved updated ONNX model to {out_onnx} ({out_onnx.stat().st_size / 1024:.1f} KB)")
 
@@ -237,7 +249,7 @@ def main():
         f"ONNX size: {onnx_size_mb:.2f} MB ({out_onnx.stat().st_size / 1024:.1f} KB)",
     ])
     print(summary)
-    log_safe("train_model", summary)
+    log_safe("train_model", summary, notes_file=NOTES_PATH)
 
 
 if __name__ == "__main__":

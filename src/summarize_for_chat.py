@@ -1,15 +1,25 @@
 import json
 import pathlib
+import sys
 import numpy as np
 import pandas as pd
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
 
 
 def main() -> None:
-    data_dir = pathlib.Path("TechArena-Finland-2026/data")
-    out_dir = pathlib.Path("chat_summaries")
-    out_dir.mkdir(exist_ok=True)
+    data_dir = DATA_DIR / "data" if (DATA_DIR / "data").exists() else DATA_DIR
+    out_dir = ROOT_DIR / "chat_summaries"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     parquet_files = sorted(data_dir.rglob("*.parquet"))
     rows = []
@@ -22,7 +32,8 @@ def main() -> None:
             except Exception:
                 pass
         if isinstance(df.index, pd.DatetimeIndex) and len(df) > 1:
-            df = df.sort_index()
+            if not df.index.is_monotonic_increasing:
+                df = df.sort_index()
             dt_sec = df.index.to_series().diff().dt.total_seconds().dropna()
             median_dt = float(dt_sec.median()) if len(dt_sec) else np.nan
             n_windows_10s = int(

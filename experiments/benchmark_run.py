@@ -1,3 +1,15 @@
+import pathlib
+import sys
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR, SUBMISSION_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
 import os
 
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -5,21 +17,17 @@ os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
-import pathlib
-import sys
 import time
 import pandas as pd
-
-sys.path.insert(0, "TechArena-Finland-2026")
 import submission_model as m
 
 
 def main() -> None:
     model = m.get_model()
-    files = sorted(pathlib.Path("TechArena-Finland-2026/data").rglob("*.parquet"))
+    data_sub_dir = DATA_DIR / "data" if (DATA_DIR / "data").exists() else DATA_DIR
+    files = sorted(data_sub_dir.rglob("*.parquet"))
     sample_dfs = [pd.read_parquet(f) for f in files[:10]]
 
-    # Warm-up run
     _ = model.run(sample_dfs[0])
 
     times = []

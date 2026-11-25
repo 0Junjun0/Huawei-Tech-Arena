@@ -1,3 +1,15 @@
+import pathlib
+import sys
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR, SUBMISSION_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
 import os
 
 # Enforce single-core / single-thread execution before importing numerical/ONNX libraries
@@ -7,8 +19,6 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 
-import pathlib
-import sys
 import time
 import tracemalloc
 import numpy as np
@@ -19,16 +29,12 @@ from sklearn.metrics import f1_score, precision_recall_fscore_support
 from sklearn.model_selection import GroupKFold
 from sklearn.pipeline import Pipeline
 
-WORK_DIR = pathlib.Path(__file__).resolve().parent
-DATA_DIR = WORK_DIR / "TechArena-Finland-2026"
-NOTES_PATH = WORK_DIR / "experiment_notes.md"
-SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
-VALID_LABELS = {"Rest", "Stress", "Activity"}
-
-sys.path.insert(0, str(WORK_DIR))
 import submission_model as sm
 import train_model as tm
 from auto_log_experiment import append_experiment_to_notes
+
+SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
+VALID_LABELS = {"Rest", "Stress", "Activity"}
 
 
 class GuardedPreprocessingRunner:
@@ -36,7 +42,6 @@ class GuardedPreprocessingRunner:
 
     def __init__(self, base_model):
         self.base_model = base_model
-        # Hoist constant arrays/sets once at initialization instead of re-allocating per run()
         self._sensor_cols = tuple(SENSOR_COLS)
         self._valid_labels = frozenset(VALID_LABELS)
         self._class_weights = np.array([0.95, 1.80, 0.85], dtype=np.float64)
@@ -116,7 +121,7 @@ def eval_grouped_f1(X: np.ndarray, y: np.ndarray, groups: np.ndarray) -> tuple[f
 
 
 def main() -> None:
-    root_dir = DATA_DIR if DATA_DIR.exists() else WORK_DIR
+    root_dir = DATA_DIR if DATA_DIR.exists() else ROOT_DIR
     X, y, groups = tm.build_dataset(root_dir, win_sec=10)
     train_f1, val_f1, cls_f1 = eval_grouped_f1(X, y, groups)
 
@@ -136,7 +141,6 @@ def main() -> None:
     base_model = sm.get_model()
     guarded = GuardedPreprocessingRunner(base_model)
 
-    # Edge-case verification: sorted DatetimeIndex, unsorted DatetimeIndex, string/non-datetime index, and NaNs
     df_sorted = sample_dfs[0].copy()
     if not isinstance(df_sorted.index, pd.DatetimeIndex):
         df_sorted.index = pd.to_datetime(df_sorted.index)
@@ -167,7 +171,7 @@ def main() -> None:
     )
 
     stats, peak_ram_mb = benchmark_50_runs(guarded, sample_dfs)
-    onnx_path = WORK_DIR / "submission_model.onnx"
+    onnx_path = SUBMISSION_DIR / "submission_model.onnx"
     onnx_mb = onnx_path.stat().st_size / (1024.0 * 1024.0) if onnx_path.exists() else 13.57
 
     qual_score = val_f1 * 80.0
@@ -197,7 +201,7 @@ def main() -> None:
             "sorted DatetimeIndex, unsorted DatetimeIndex, non-datetime index, and NaN inputs across "
             "50 single-core runs without modifying baseline submission files."
         ),
-        files_modified=["run_exp_opt_09.py", "experiment_notes.md"],
+        files_modified=["experiments/run_experiments.py", "notes/experiment_notes.md"],
         validation_method=(
             "5-fold GroupKFold by subject ID + edge-case checks (sorted, unsorted, non-datetime, NaN) "
             "+ 50-run single-core benchmark (1 CPU core, threads=1, <=4 GB RAM, <=50 MB zip)"

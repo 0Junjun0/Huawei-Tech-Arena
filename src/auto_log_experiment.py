@@ -1,6 +1,16 @@
 import datetime
 import pathlib
+import sys
 from typing import Optional
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 
 def append_experiment_to_notes(
@@ -24,7 +34,7 @@ def append_experiment_to_notes(
     speed_score: Optional[float] = None,
     total_score: Optional[float] = None,
     conclusion: str,
-    notes_path: pathlib.Path = pathlib.Path("experiment_notes.md"),
+    notes_path: pathlib.Path = NOTES_PATH,
 ) -> pathlib.Path:
     """Appends a structured experiment entry to experiment_notes.md."""
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -78,6 +88,7 @@ def append_experiment_to_notes(
     )
 
     notes_path = pathlib.Path(notes_path)
+    notes_path.parent.mkdir(parents=True, exist_ok=True)
     existing = notes_path.read_text(encoding="utf-8") if notes_path.exists() else "# Experiment Notes\n"
     if not existing.endswith("\n"):
         existing += "\n"
@@ -85,7 +96,6 @@ def append_experiment_to_notes(
     return notes_path
 
 
-# Example bottom-of-script usage for EXP-OPT-02:
 if __name__ == "__main__":
     out_file = append_experiment_to_notes(
         exp_id="EXP-OPT-02",
@@ -98,7 +108,7 @@ if __name__ == "__main__":
             "Benchmarked EXP-OPT-02 parity and 50-run single-threaded run() latency on 10 sample "
             "recordings without modifying baseline submission artifacts."
         ),
-        files_modified=["run_exp_opt_02.py", "experiment_notes.md"],
+        files_modified=["experiments/run_experiments.py", "notes/experiment_notes.md"],
         validation_method="10-recording schema/label/shuffled-column parity + 50-run single-core run() benchmark (1 thread)",
         prev_macro_f1="Raw 0.5541 | Tuned 0.5805 (from EXP-OPT-01)",
         new_macro_f1="Unchanged (parity check PASSED on 10 recordings)",

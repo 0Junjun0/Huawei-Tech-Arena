@@ -1,4 +1,15 @@
 import pathlib
+import sys
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR, SUBMISSION_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
 import time
 import numpy as np
 import pandas as pd
@@ -20,7 +31,7 @@ import train_model
 
 def build_dataset_with_protocol(root_dir: pathlib.Path, win_sec: int = 10):
     X_list, y_list, groups_list, proto_list = [], [], [], []
-    data_dir = root_dir / "data"
+    data_dir = root_dir / "data" if (root_dir / "data").exists() else root_dir
 
     for parquet_path in sorted(data_dir.rglob("*.parquet")):
         subject_id = parquet_path.stem
@@ -71,12 +82,13 @@ def build_dataset_with_protocol(root_dir: pathlib.Path, win_sec: int = 10):
 
 
 def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
-    onnx_path = pathlib.Path("submission_model.onnx")
+    onnx_path = SUBMISSION_DIR / "submission_model.onnx"
     if not onnx_path.exists():
-        print("\n[Speed Check] Skipped: submission_model.onnx not found.")
+        print(f"\n[Speed Check] Skipped: {onnx_path} not found.")
         return None, None
 
-    sample_files = sorted((root_dir / "data").rglob("*.parquet"))[:3]
+    data_sub_dir = root_dir / "data" if (root_dir / "data").exists() else root_dir
+    sample_files = sorted(data_sub_dir.rglob("*.parquet"))[:3]
     if not sample_files:
         print("\n[Speed Check] Skipped: no sample parquet files found.")
         return None, None
@@ -84,7 +96,6 @@ def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
     dfs = [pd.read_parquet(p).reindex(columns=train_model.SENSOR_COLS) for p in sample_files]
     model = submission_model.get_model()
 
-    # Warmup
     _ = model.run(dfs[0])
 
     times = []
@@ -105,7 +116,7 @@ def benchmark_submission_model(root_dir: pathlib.Path, n_runs: int = 20):
 
 
 def main():
-    root_dir = pathlib.Path("TechArena-Finland-2026")
+    root_dir = DATA_DIR
     X, y, groups, protocols = build_dataset_with_protocol(root_dir, win_sec=10)
     unique_subjects = np.unique(groups)
 
@@ -168,7 +179,7 @@ def main():
 
     met_sec, speed_pts = benchmark_submission_model(root_dir, n_runs=20)
 
-    onnx_path = pathlib.Path("submission_model.onnx")
+    onnx_path = SUBMISSION_DIR / "submission_model.onnx"
     if onnx_path.exists():
         import onnxruntime as ort
 
@@ -218,7 +229,7 @@ def main():
         f"Macro-F1: {macro_f1:.4f} | Quality score: {qual_score:.2f}/80 | Est. Total: {est_total:.2f}/100",
     ])
     print(audit_summary)
-    log_safe("metrics_audit", audit_summary)
+    log_safe("metrics_audit", audit_summary, notes_file=NOTES_PATH)
 
 
 if __name__ == "__main__":
