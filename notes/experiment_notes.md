@@ -503,3 +503,23 @@ ONNX size: 26.12 MB (26748.8 KB)
 - **Execution time:** Peak RAM: 33.12 MB | ONNX size: 26.12 MB
 - **Estimated total competition score:** N/A
 - **Conclusion:** Blend reached Raw 0.5684 and Tuned 0.5882 (5-fold fit 105.16s); HGB still faces skl2onnx export constraints and dual-model inference adds latency overhead, so keep submission/ baseline untouched until ONNX/speed trade-offs are checked.
+
+## 2026-11-25 17:34:59 — train_model
+
+```text
+Features: 42 | Samples: 14890 | Subjects: 35
+Raw OOF Macro-F1: 0.5504 (44.03/80)
+Tuned OOF Macro-F1: 0.5844 (46.75/80) | Weights: [0.949999988079071, 1.7999999523162842, 0.8500000238418579]
+ONNX size: 26.12 MB (26748.8 KB)
+- **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`
+```
+
+## 2026-11-25 18:40:07 — train_model
+
+```text
+Features: 42 | Samples: 14890 | Subjects: 35
+Raw OOF Macro-F1: 0.5504 (44.03/80)
+Tuned OOF Macro-F1: 0.5844 (46.75/80) | Weights: [0.949999988079071, 1.7999999523162842, 0.8500000238418579]
+ONNX size: 26.12 MB (26748.8 KB)
+- **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`
+```
