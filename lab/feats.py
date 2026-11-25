@@ -67,7 +67,43 @@ def window_grid(index):
     return t, wid, w0, n_win
 
 
-def compute(df: pd.DataFrame, use_time=True):
+def _extras(df, t, wid, n_win, Klog):
+    """EDA response dynamics + one-sided (before/after) context."""
+    cols, nm = [], []
+    v = df["EDA"].to_numpy(dtype=np.float64) if "EDA" in df.columns else np.full(len(t), np.nan)
+    m = ~np.isnan(v)
+    ev, ew = v[m], wid[m]
+    if len(ev) > 2:
+        d = np.diff(ev, prepend=ev[0])
+        pos = np.maximum(d, 0.0)
+        _, pmean, _, _, pmax = _win_stats(ew, pos, n_win)
+        _, _, _, dmin, _ = _win_stats(ew, d, n_win)
+        # count of rising-edge onsets (SCR-like): derivative crosses small threshold upward
+        thr = 0.01 * (np.percentile(ev, 90) - np.percentile(ev, 10) + 1e-6) + 1e-4
+        on = ((d > thr) & (np.r_[0.0, d[:-1]] <= thr)).astype(np.float64)
+        _, onr, _, _, _ = _win_stats(ew, on, n_win)
+    else:
+        pmean = pmax = dmin = onr = np.zeros(n_win)
+    E = _ffill(np.column_stack([pmean, pmax, dmin, onr]))
+    cols.append(E); nm += ["EDA_dpos_mean", "EDA_dpos_max", "EDA_dmin", "EDA_onset_rate"]
+    cols.append(_roll_mean(E, 7)); nm += [f"{x}_c7" for x in ["EDA_dpos_mean", "EDA_dpos_max", "EDA_dmin", "EDA_onset_rate"]]
+    # one-sided context: mean of next k minus mean of previous k (onset/offset detectors)
+    c = np.vstack([np.zeros((1, Klog.shape[1])), np.cumsum(Klog, 0)])
+    i = np.arange(n_win)
+    for k in (3, 9):
+        lo_b, hi_b = np.clip(i - k, 0, n_win), i
+        lo_f, hi_f = np.clip(i + 1, 0, n_win), np.clip(i + 1 + k, 0, n_win)
+        nb = np.maximum(hi_b - lo_b, 1)[:, None]; nf = np.maximum(hi_f - lo_f, 1)[:, None]
+        before = (c[hi_b] - c[lo_b]) / nb
+        after = (c[hi_f] - c[lo_f]) / nf
+        before = np.where((hi_b - lo_b)[:, None] > 0, before, Klog)
+        after = np.where((hi_f - lo_f)[:, None] > 0, after, Klog)
+        cols += [after - before, Klog - before]
+        nm += [f"k{j}_fb{k}" for j in range(Klog.shape[1])] + [f"k{j}_nowb{k}" for j in range(Klog.shape[1])]
+    return np.hstack(cols), nm
+
+
+def compute(df: pd.DataFrame, use_time=True, extras=False, local=False):
     """Returns (window_start_ns[int64], X[float32], names)."""
     t, wid, w0, n_win = window_grid(df.index)
     base_cols, names = [], []
@@ -131,6 +167,14 @@ def compute(df: pd.DataFrame, use_time=True):
         feats.append(fwd - bwd)
         fnames += [f"{n}_slope{lag}" for n in knames]
 
+    if local:
+        # no whole-recording statistics: only bounded context (robust to chunked / concatenated input)
+        if extras:
+            Xe, ne = _extras(df, t, wid, n_win, Klog)
+            feats.append(Xe); fnames += ne
+        X = np.hstack(feats).astype(np.float32)
+        return (w0 + np.arange(n_win)) * WIN_NS, X, fnames
+
     # recording-relative: vs median, vs 10th pct (baseline-ish), scaled by IQR; rank in recording
     med = np.median(Klog, axis=0)
     p10 = np.percentile(Klog, 10, axis=0)
@@ -148,6 +192,11 @@ def compute(df: pd.DataFrame, use_time=True):
     rec = np.concatenate([p90 - p10, p90, p10])
     feats.append(np.repeat(rec[None, :], n_win, axis=0))
     fnames += [f"{n}_rec_rng" for n in knames] + [f"{n}_rec_p90" for n in knames] + [f"{n}_rec_p10" for n in knames]
+
+    if extras:
+        Xe, ne = _extras(df, t, wid, n_win, Klog)
+        feats.append(Xe)
+        fnames += ne
 
     if use_time:
         pos = np.arange(n_win, dtype=np.float64)
