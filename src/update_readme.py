@@ -1,5 +1,16 @@
 import datetime
 import pathlib
+import sys
+
+SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 
 def read_if_exists(path: pathlib.Path | None, max_chars: int = 4000) -> str:
@@ -21,43 +32,61 @@ def find_first(candidates: list[pathlib.Path]) -> pathlib.Path | None:
 
 
 def main() -> None:
-    work_dir = pathlib.Path(".")
-    kit_dir = work_dir / "TechArena-Finland-2026"
+    work_dir = ROOT_DIR
+    kit_dir = DATA_DIR
 
-    subj_info_path = find_first([work_dir / "subject-info.csv", kit_dir / "subject-info.csv"])
-    constraints_path = find_first([work_dir / "data_constraints.txt", kit_dir / "data_constraints.txt"])
-    phases_path = find_first([work_dir / "phases_to_activity.txt", kit_dir / "phases_to_activity.txt"])
-    notes_path = find_first([work_dir / "experiment_notes.md", kit_dir / "experiment_notes.md"])
+    subj_info_path = find_first([
+        work_dir / "subject-info.csv",
+        kit_dir / "subject-info.csv",
+        work_dir / "notes" / "subject-info.csv",
+    ])
+    constraints_path = find_first([
+        work_dir / "data_constraints.txt",
+        kit_dir / "data_constraints.txt",
+        work_dir / "notes" / "data_constraints.txt",
+    ])
+    phases_path = find_first([
+        work_dir / "phases_to_activity.txt",
+        kit_dir / "phases_to_activity.txt",
+        work_dir / "notes" / "phases_to_activity.txt",
+    ])
+    notes_path = find_first([
+        NOTES_PATH,
+        work_dir / "experiment_notes.md",
+        kit_dir / "experiment_notes.md",
+    ])
 
     tracked_files = [
-        "train_model.py",
-        "submission_model.py",
-        "submission_model.onnx",
-        "adm_base_class.py",
-        "metrics_audit.py",
-        "run_experiments.py",
-        "log_results.py",
-        "summarize_for_chat.py",
-        "update_readme.py",
-        "experiment_notes.md",
+        "src/train_model.py",
+        "src/log_results.py",
+        "src/auto_log_experiment.py",
+        "src/summarize_for_chat.py",
+        "src/update_readme.py",
+        "experiments/run_experiments.py",
+        "experiments/metrics_audit.py",
+        "experiments/audit_pipeline.py",
+        "experiments/benchmark_run.py",
+        "submission/submission_model.py",
+        "submission/submission_model.onnx",
+        "notes/experiment_notes.md",
     ]
     present_files = []
-    for name in tracked_files:
-        p = find_first([work_dir / name, kit_dir / name])
+    for rel_name in tracked_files:
+        p = find_first([work_dir / rel_name, kit_dir / pathlib.Path(rel_name).name])
         if p is not None:
             size_kb = p.stat().st_size / 1024.0
-            present_files.append(f"- `{name}` ({size_kb:.1f} KB)")
+            present_files.append(f"- `{rel_name}` ({size_kb:.1f} KB)")
 
-    for zp in sorted(work_dir.glob("*.zip")):
+    for zp in sorted(list(work_dir.glob("*.zip")) + list(SUBMISSION_DIR.glob("*.zip"))):
         size_mb = zp.stat().st_size / (1024 * 1024)
-        present_files.append(f"- `{zp.name}` ({size_mb:.2f} MB ZIP)")
+        present_files.append(f"- `{zp.relative_to(work_dir)}` ({size_mb:.2f} MB ZIP)")
 
     subj_info_txt = read_if_exists(subj_info_path, 2500)
     constraints_txt = read_if_exists(constraints_path, 2500)
     phases_txt = read_if_exists(phases_path, 1500)
     notes_txt = read_if_exists(notes_path, 3500)
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    files_block = "\n".join(present_files) if present_files else "- _No tracked project files detected in current folder._"
+    files_block = "\n".join(present_files) if present_files else "- _No tracked project files detected in project folder._"
 
     lines = [
         "# Huawei Tech Arena 2026 - Project & Experimentation README",
@@ -98,11 +127,11 @@ def main() -> None:
         "2. **Validation Framework (No Leakage):**",
         "   - Random stratified split (diagnostic baseline only - never used to optimize models).",
         "   - Subject-grouped cross-validation (`GroupKFold` by subject ID) and Leave-One-Subject-Out (`LOSO`) where feasible.",
-        "   - Protocol-grouped validation where dataset structure permits.",
+        "   - Protocol-grouped validation where dataset structure supports it.",
         "   - Preprocessing and feature fitting restricted to training splits without subject leakage.",
         "3. **Metrics Reported:** Overall Macro-F1, per-class precision/recall/F1 (`Rest`, `Stress`, `Activity`), confusion matrices, per-subject and per-protocol performance, and mean/standard deviation across validation folds.",
         "4. **Controlled Experimentation & Inference Profiling:**",
-        "   - Single-variable changes while preserving the working baseline and logging runs to `experiment_notes.md`.",
+        "   - Single-variable changes while preserving the working baseline and logging runs to `notes/experiment_notes.md`.",
         "   - End-to-end `run()` timing (`mean`, `median`, `P95`, `std`), peak memory, `.onnx` file size, and `sklearn` vs. ONNX parity checks under single-thread settings.",
         "",
         "## 5. Recent Experiment Notes Summary",

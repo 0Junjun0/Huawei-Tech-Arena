@@ -1,3 +1,15 @@
+import pathlib
+import sys
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
 import os
 
 # Enforce single-threaded execution before importing numpy/scipy/sklearn/onnxruntime
@@ -8,8 +20,6 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 
 import inspect
-import pathlib
-import sys
 import tempfile
 import time
 import tracemalloc
@@ -18,30 +28,28 @@ import numpy as np
 import onnxruntime as ort
 import pandas as pd
 
-WORK_DIR = pathlib.Path(__file__).resolve().parent
-DATA_KIT_DIR = WORK_DIR / "TechArena-Finland-2026"
 SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
 VALID_LABELS = {"Stress", "Activity", "Rest"}
 
 
 def check_files_and_zip() -> pathlib.Path:
     print("=== 1. File & ZIP Audit ===")
-    py_path = WORK_DIR / "submission_model.py"
-    onnx_path = WORK_DIR / "submission_model.onnx"
-    base_path = DATA_KIT_DIR / "adm_base_class.py"
-    if not base_path.exists() and (WORK_DIR / "adm_base_class.py").exists():
-        base_path = WORK_DIR / "adm_base_class.py"
+    py_path = SUBMISSION_DIR / "submission_model.py"
+    onnx_path = SUBMISSION_DIR / "submission_model.onnx"
+    base_path = DATA_DIR / "adm_base_class.py"
+    if not base_path.exists() and (ROOT_DIR / "adm_base_class.py").exists():
+        base_path = ROOT_DIR / "adm_base_class.py"
 
-    assert py_path.exists(), "Missing submission_model.py"
-    assert onnx_path.exists(), "Missing submission_model.onnx"
-    assert base_path.exists(), "Missing adm_base_class.py"
+    assert py_path.exists(), f"Missing {py_path}"
+    assert onnx_path.exists(), f"Missing {onnx_path}"
+    assert base_path.exists(), f"Missing {base_path}"
     assert py_path.stem == onnx_path.stem, "Python and ONNX base names must match"
 
     onnx_size_mb = onnx_path.stat().st_size / (1024 * 1024)
     print(f"Found {py_path.name} and {onnx_path.name} ({onnx_size_mb:.2f} MB)")
 
-    zip_candidates = sorted(WORK_DIR.glob("*.zip"))
-    assert zip_candidates, "No submission .zip found in working directory"
+    zip_candidates = sorted(list(SUBMISSION_DIR.glob("*.zip")) + list(ROOT_DIR.glob("*.zip")))
+    assert zip_candidates, "No submission .zip found in submission/ or root directory"
     zip_path = zip_candidates[0]
     zip_size_mb = zip_path.stat().st_size / (1024 * 1024)
     assert zip_size_mb <= 50.0, f"ZIP exceeds 50 MB limit: {zip_size_mb:.2f} MB"
@@ -68,7 +76,7 @@ def check_onnx_contract(onnx_path: pathlib.Path) -> None:
     print(f"ONNX Outputs: {[(o.name, o.shape, o.type) for o in outputs]}")
     assert "float" in inp.type.lower(), f"Expected float input tensor, got {inp.type}"
 
-    n_feats = inp.shape[1] if (len(inp.shape) == 2 and isinstance(inp.shape[1], int)) else 42
+    n_feats = inp.shape[1] if (len(inp.shape) == 2 and isinstance(inp.shape[1], int)) else 44
     dummy = np.zeros((5, n_feats), dtype=np.float32)
     res = sess.run(None, {inp.name: dummy})
     assert len(res) >= 1 and len(res[0]) == 5, "Unexpected ONNX output shape"
@@ -76,13 +84,13 @@ def check_onnx_contract(onnx_path: pathlib.Path) -> None:
 
 def resolve_base_class_path() -> pathlib.Path:
     candidates = [
-        DATA_KIT_DIR / "adm_base_class.py",
-        WORK_DIR / "adm_base_class.py",
+        DATA_DIR / "adm_base_class.py",
+        ROOT_DIR / "adm_base_class.py",
     ]
     for p in candidates:
         if p.exists():
             return p
-    found = list(WORK_DIR.rglob("adm_base_class.py"))
+    found = list(ROOT_DIR.rglob("adm_base_class.py"))
     assert found, "Could not locate adm_base_class.py anywhere under techarena_work"
     return found[0]
 
@@ -143,13 +151,13 @@ def validate_output_df(out: pd.DataFrame, input_df: pd.DataFrame) -> None:
 
 def run_end_to_end_tests_and_benchmark(model) -> None:
     print("\n=== 4. End-to-End Tests, Column/NaN Robustness & 50-Run MET ===")
-    parquet_files = sorted((DATA_KIT_DIR / "data").rglob("*.parquet")) if (DATA_KIT_DIR / "data").exists() else []
-    assert parquet_files, "No .parquet files found under TechArena-Finland-2026/data"
+    data_sub_dir = DATA_DIR / "data" if (DATA_DIR / "data").exists() else DATA_DIR
+    parquet_files = sorted(data_sub_dir.rglob("*.parquet")) if data_sub_dir.exists() else []
+    assert parquet_files, f"No .parquet files found under {data_sub_dir}"
 
     sample_dfs = [pd.read_parquet(p) for p in parquet_files[:10]]
     df0 = sample_dfs[0]
 
-    # Repeated calls & shuffled column order check
     out_a = model.run(df0)
     out_b = model.run(df0)
     validate_output_df(out_a, df0)
@@ -163,7 +171,6 @@ def run_end_to_end_tests_and_benchmark(model) -> None:
     validate_output_df(out_shuf, df0)
     print("Repeated calls and reversed sensor column order: PASSED")
 
-    # Missing value stress test (injecting NaNs into sensor columns)
     df_nan = df0.copy()
     for col in SENSOR_COLS:
         if col in df_nan.columns:
@@ -172,10 +179,8 @@ def run_end_to_end_tests_and_benchmark(model) -> None:
     validate_output_df(out_nan, df_nan)
     print("Injected NaN robustness test: PASSED")
 
-    # Warm-up run (includes feature extraction + ONNX inference)
     _ = model.run(sample_dfs[0])
 
-    # True end-to-end run() timing over 50 calls (includes Python feature extraction)
     times = []
     for i in range(50):
         df_curr = sample_dfs[i % len(sample_dfs)]
@@ -201,14 +206,13 @@ def run_end_to_end_tests_and_benchmark(model) -> None:
 
 def check_validation_and_efficiency(model) -> None:
     print("\n=== 5. Validation & Single-Core Efficiency Gate ===")
-    data_dir = DATA_KIT_DIR / "data" if (DATA_KIT_DIR / "data").exists() else WORK_DIR / "data"
-    parquet_files = sorted(data_dir.rglob("*.parquet"))
+    data_sub_dir = DATA_DIR / "data" if (DATA_DIR / "data").exists() else DATA_DIR
+    parquet_files = sorted(data_sub_dir.rglob("*.parquet")) if data_sub_dir.exists() else []
     assert parquet_files, "No .parquet files found for efficiency check"
 
     sample_dfs = [pd.read_parquet(p) for p in parquet_files[:5]]
-    _ = model.run(sample_dfs[0])  # warm-up
+    _ = model.run(sample_dfs[0])
 
-    # 1. Measure 50-run latency first without tracemalloc overhead
     latencies = []
     for i in range(50):
         df_in = sample_dfs[i % len(sample_dfs)]
@@ -217,7 +221,6 @@ def check_validation_and_efficiency(model) -> None:
         latencies.append(time.perf_counter() - t0)
         validate_output_df(out, df_in)
 
-    # 2. Measure peak traced memory separately
     tracemalloc.start()
     for i in range(50):
         df_in = sample_dfs[i % len(sample_dfs)]
@@ -230,7 +233,7 @@ def check_validation_and_efficiency(model) -> None:
     met = float(np.mean(arr))
     p95 = float(np.percentile(arr, 95))
     peak_mb = peak_bytes / (1024.0 * 1024.0)
-    onnx_path = WORK_DIR / "submission_model.onnx"
+    onnx_path = SUBMISSION_DIR / "submission_model.onnx"
     onnx_mb = onnx_path.stat().st_size / (1024.0 * 1024.0) if onnx_path.exists() else 0.0
     speed_pts = max(0.0, min(20.0, (1.0 - met / 0.3) * 20.0))
 
@@ -243,7 +246,7 @@ def check_validation_and_efficiency(model) -> None:
 
 def main() -> None:
     zip_path = check_files_and_zip()
-    check_onnx_contract(WORK_DIR / "submission_model.onnx")
+    check_onnx_contract(SUBMISSION_DIR / "submission_model.onnx")
     base_path = resolve_base_class_path()
     model = check_package_load_and_adm_base(zip_path, base_path)
     run_end_to_end_tests_and_benchmark(model)

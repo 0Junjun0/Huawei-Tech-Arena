@@ -1,5 +1,15 @@
 import datetime
 import pathlib
+import sys
+
+ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "TechArena-Finland-2026"
+NOTES_PATH = ROOT_DIR / "notes" / "experiment_notes.md"
+SUBMISSION_DIR = ROOT_DIR / "submission"
+
+for p in (ROOT_DIR, ROOT_DIR / "src", ROOT_DIR / "experiments", DATA_DIR):
+    if p.exists() and str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 
 def _clean_summary_text(summary_text: str) -> str:
@@ -14,16 +24,18 @@ def _clean_summary_text(summary_text: str) -> str:
 def append_experiment_note(
     run_name: str,
     summary_text: str,
-    notes_file: pathlib.Path = pathlib.Path("experiment_notes.md"),
+    notes_file: pathlib.Path = NOTES_PATH,
     as_markdown: bool = False,
     ensure_submission_model_ref: bool = True,
 ) -> None:
+    notes_file = pathlib.Path(notes_file)
+    notes_file.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     cleaned_body = _clean_summary_text(summary_text)
 
     if ensure_submission_model_ref and "submission_model" not in cleaned_body:
         cleaned_body += (
-            "\n- **Submission model:** `submission_model.py` + `submission_model.onnx`"
+            "\n- **Submission model:** `submission/submission_model.py` + `submission/submission_model.onnx`"
         )
 
     if as_markdown:
@@ -47,7 +59,7 @@ def append_experiment_note(
 def log_safe(
     run_name: str,
     summary_text: str,
-    notes_file: pathlib.Path = pathlib.Path("experiment_notes.md"),
+    notes_file: pathlib.Path = NOTES_PATH,
     as_markdown: bool = False,
     ensure_submission_model_ref: bool = True,
 ) -> None:
@@ -64,8 +76,6 @@ def log_safe(
 
 
 if __name__ == "__main__":
-    import sys
-
     label = sys.argv[1] if len(sys.argv) > 1 else "manual-run"
     md_mode = "--md" in sys.argv[2:]
     pasted = sys.stdin.read()
