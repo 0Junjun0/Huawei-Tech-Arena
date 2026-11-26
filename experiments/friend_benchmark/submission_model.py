@@ -15,7 +15,7 @@ from adm_base_class import ADM_Base
 LABELS = ["Rest", "Stress", "Activity"]
 SENSOR_COLS = ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]
 # Auto-updated by train_model.py after nested out-of-fold Macro-F1 tuning
-CLASS_WEIGHTS = [0.92, 1.3, 0.85]
+CLASS_WEIGHTS = [0.85, 1.25, 0.85]
 
 
 def _ffill_bfill_2d(arr: np.ndarray) -> np.ndarray:

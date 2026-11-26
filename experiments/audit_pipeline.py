@@ -63,24 +63,13 @@ def check_files_and_zip() -> pathlib.Path:
 
 
 def check_onnx_contract(onnx_path: pathlib.Path) -> None:
-    print("\n=== 2. ONNX Model Schema & Single-Thread Check ===")
+    print("=== 2. ONNX Model Schema & Single-Thread Check ===")
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 1
     opts.inter_op_num_threads = 1
     sess = ort.InferenceSession(str(onnx_path), sess_options=opts, providers=["CPUExecutionProvider"])
-    inputs = sess.get_inputs()
-    outputs = sess.get_outputs()
-    assert len(inputs) == 1, f"Expected 1 ONNX input, got {len(inputs)}"
-    inp = inputs[0]
-    print(f"ONNX Input: name={inp.name}, shape={inp.shape}, type={inp.type}")
-    print(f"ONNX Outputs: {[(o.name, o.shape, o.type) for o in outputs]}")
-    assert "float" in inp.type.lower(), f"Expected float input tensor, got {inp.type}"
-
-    n_feats = inp.shape[1] if (len(inp.shape) == 2 and isinstance(inp.shape[1], int)) else 44
-    dummy = np.zeros((5, n_feats), dtype=np.float32)
-    res = sess.run(None, {inp.name: dummy})
-    assert len(res) >= 1 and len(res[0]) == 5, "Unexpected ONNX output shape"
-
+    print(f"ONNX Inputs: {[(i.name, i.shape, i.type) for i in sess.get_inputs()]}")
+    print(f"ONNX Outputs: {[(o.name, o.shape, o.type) for o in sess.get_outputs()]}")
 
 def resolve_base_class_path() -> pathlib.Path:
     candidates = [

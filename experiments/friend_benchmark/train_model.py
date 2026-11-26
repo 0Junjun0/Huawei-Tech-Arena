@@ -33,15 +33,17 @@ REST_PHASES = {"baseline", "rest"}
 
 
 def find_dataset_root() -> pathlib.Path:
-    """This subprogram locates the directory containing the competition data/ folder."""
-    for candidate in [pathlib.Path("."), pathlib.Path("TechArena-Finland-2026")]:
-        if (candidate / "data").is_dir():
+    """Locate directory containing actual dataset .parquet files."""
+    for candidate in [pathlib.Path("TechArena-Finland-2026"), pathlib.Path(".")]:
+        d = candidate / "data" if candidate.name != "data" else candidate
+        parquets = [p for p in d.rglob("*.parquet") if ".venv" not in p.parts] if d.is_dir() else []
+        if parquets:
             return candidate
-    raise FileNotFoundError("Could not find 'data/' folder in current directory or 'TechArena-Finland-2026/'.")
+    raise FileNotFoundError("Could not find '.parquet' files in data folder.")
 
 
 def map_phase_to_activity(phase_val) -> str | None:
-    """This subprogram maps protocol Phase strings to Rest, Stress, Activity, or None using phases_to_activity.txt rules."""
+    """Map protocol Phase strings to Rest, Stress, Activity, or None using phases_to_activity.txt rules."""
     if pd.isna(phase_val):
         return None
     low = str(phase_val).strip().lower()
@@ -55,14 +57,19 @@ def map_phase_to_activity(phase_val) -> str | None:
 
 
 def build_dataset(root_dir: pathlib.Path, win_sec: int = 10) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[slice]]:
-    """This subprogram loads all participant Parquet files, builds 10s windows, and records window purity and recording slices."""
+    """Load all participant Parquet files, build 10s windows, record window purity and recording slices."""
     X_list, y_list, groups_list, purity_list, file_slices = [], [], [], [], []
-    data_dir = root_dir / "data"
+    data_dir = root_dir / "data" if (root_dir / "data").is_dir() else root_dir
     offset = 0
 
-    for parquet_path in sorted(data_dir.rglob("*.parquet")):
+    parquet_files = [p for p in sorted(data_dir.rglob("*.parquet")) if ".venv" not in p.parts and not p.name.startswith(".")]
+
+    for parquet_path in parquet_files:
         subject_id = parquet_path.stem
         df = pd.read_parquet(parquet_path)
+
+        if isinstance(df.index, pd.MultiIndex):
+            df = df.reset_index(drop=True)
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
         if not df.index.is_monotonic_increasing:
@@ -115,7 +122,7 @@ def build_dataset(root_dir: pathlib.Path, win_sec: int = 10) -> tuple[np.ndarray
 
 
 def make_ensemble_pipeline(seed: int = 42, mode: str = "hgb_vote") -> Pipeline:
-    """This subprogram builds a single-threaded classifier pipeline compatible with skl2onnx export."""
+    """Build single-threaded classifier pipeline compatible with skl2onnx export."""
     if mode == "hgb_vote":
         ensemble = VotingClassifier(
             estimators=[
@@ -204,7 +211,6 @@ def make_ensemble_pipeline(seed: int = 42, mode: str = "hgb_vote") -> Pipeline:
         )
         return Pipeline([("imputer", SimpleImputer(strategy="median")), ("ens", ensemble)])
 
-    # Standalone ExtraTrees fallback if VotingClassifier fails ONNX conversion
     clf = ExtraTreesClassifier(
         n_estimators=260,
         max_depth=16,
@@ -217,7 +223,7 @@ def make_ensemble_pipeline(seed: int = 42, mode: str = "hgb_vote") -> Pipeline:
 
 
 def search_best_weights(probs: np.ndarray, y_true: np.ndarray) -> np.ndarray:
-    """This subprogram finds regularized class probability multipliers maximizing Macro-F1."""
+    """Find regularized class probability multipliers maximizing Macro-F1."""
     best_score = -1.0
     best_w = np.array([1.0, 1.0, 1.0], dtype=np.float32)
 
@@ -235,7 +241,7 @@ def search_best_weights(probs: np.ndarray, y_true: np.ndarray) -> np.ndarray:
 
 
 def update_submission_weights(sub_py_path: pathlib.Path, weights: np.ndarray) -> None:
-    """This subprogram writes the tuned CLASS_WEIGHTS list directly into submission_model.py."""
+    """Write tuned CLASS_WEIGHTS list directly into submission_model.py."""
     if not sub_py_path.exists():
         return
     text = sub_py_path.read_text(encoding="utf-8")
@@ -245,7 +251,7 @@ def update_submission_weights(sub_py_path: pathlib.Path, weights: np.ndarray) ->
 
 
 def main() -> None:
-    """This subprogram runs leak-free nested subject-grouped CV, exports the ONNX model, and verifies parity."""
+    """Run leak-free nested subject-grouped CV, export ONNX model, verify parity."""
     root_dir = find_dataset_root()
     X, y, groups, purity, file_slices = build_dataset(root_dir, win_sec=10)
     print(f"Dataset shape: X={X.shape}, y={y.shape}, unique_subjects={len(np.unique(groups))}")
@@ -255,7 +261,6 @@ def main() -> None:
     oof_probs = np.zeros((len(y), 3), dtype=np.float32)
     fold_indices = list(gkf.split(X, y, groups))
 
-    # Train ensemble across subject-grouped folds
     for fold, (tr_idx, va_idx) in enumerate(fold_indices):
         clean_tr = tr_idx[(purity[tr_idx] >= 0.75) & (X[tr_idx, 6] > 1e-5)]
         if len(clean_tr) < 100:
@@ -265,7 +270,6 @@ def main() -> None:
         clf.fit(X[clean_tr], y[clean_tr])
         oof_probs[va_idx] = clf.predict_proba(X[va_idx]).astype(np.float32)
 
-    # Apply per-recording Gaussian probability smoothing without crossing recording boundaries
     smoothed_oof = np.zeros_like(oof_probs)
     for sl in file_slices:
         smoothed_oof[sl] = smooth_window_probs(oof_probs[sl])
@@ -273,7 +277,6 @@ def main() -> None:
     raw_f1 = f1_score(y, np.argmax(smoothed_oof, axis=1), average="macro")
     print(f"Smoothed OOF Macro-F1 (unweighted): {raw_f1:.4f} | Quality: {raw_f1 * 80:.2f} / 80.0")
 
-    # Nested out-of-fold evaluation of threshold multipliers to prevent overfitting
     nested_preds = np.zeros_like(y)
     for tr_idx, va_idx in fold_indices:
         w_fold = search_best_weights(smoothed_oof[tr_idx], y[tr_idx])
@@ -286,14 +289,15 @@ def main() -> None:
 
     final_weights = search_best_weights(smoothed_oof, y)
     print(f"Deployment weights [Rest, Stress, Activity]: {[round(float(w), 4) for w in final_weights]}")
-    update_submission_weights(pathlib.Path("submission_model.py"), final_weights)
+    
+    sub_py = pathlib.Path(__file__).parent / "submission_model.py"
+    update_submission_weights(sub_py, final_weights)
 
-    # Fit final model on clean windows across all subjects and export to ONNX with automatic fallbacks
     all_clean = (purity >= 0.75) & (X[:, 6] > 1e-5)
     X_fit, y_fit = (X[all_clean], y[all_clean]) if np.sum(all_clean) >= 100 else (X, y)
 
     initial_type = [("float_input", FloatTensorType([None, X.shape[1]]))]
-    out_onnx = pathlib.Path("submission_model.onnx")
+    out_onnx = pathlib.Path(__file__).parent / "submission_model.onnx"
     onnx_model = None
     final_model = None
 
@@ -322,7 +326,6 @@ def main() -> None:
 
     out_onnx.write_bytes(onnx_model.SerializeToString())
 
-    # Verify ONNX Runtime probabilities match scikit-learn probabilities
     sess_opts = ort.SessionOptions()
     sess_opts.intra_op_num_threads = 1
     sess_opts.inter_op_num_threads = 1

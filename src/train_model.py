@@ -70,8 +70,12 @@ def extract_window_features(
     """
     work = df.reindex(columns=SENSOR_COLS).copy()
 
+    if isinstance(work.index, pd.MultiIndex):
+        work = work.reset_index(drop=True)
+
     if not isinstance(work.index, pd.DatetimeIndex):
         work.index = pd.to_datetime(work.index)
+
     if not work.index.is_monotonic_increasing:
         work = work.sort_index()
 
@@ -152,24 +156,34 @@ def build_dataset(
     """
     Traverse protocol directories, extract features, and map window modes to target activities.
     """
-    parquet_files = sorted(data_dir.rglob("*.parquet"))
+    # Exclude virtual environments (.venv) and hidden directories when discovering dataset files
+    parquet_files = [
+        p
+        for p in sorted(data_dir.rglob("*.parquet"))
+        if ".venv" not in p.parts and not p.name.startswith(".")
+    ]
     if not parquet_files:
-        raise FileNotFoundError(f"No .parquet files found in {data_dir}")
+        raise FileNotFoundError(f"No valid .parquet files found in {data_dir}")
 
     X_list, y_list, groups_list = [], [], []
 
     for parquet_path in parquet_files:
         subject_id = parquet_path.stem
         df = pd.read_parquet(parquet_path)
+
+        if "Phase" not in df.columns:
+            continue
+
+        if isinstance(df.index, pd.MultiIndex):
+            df = df.reset_index(drop=True)
+
         if not isinstance(df.index, pd.DatetimeIndex):
             df.index = pd.to_datetime(df.index)
+
         if not df.index.is_monotonic_increasing:
             df = df.sort_index()
 
         win_idx, X_win = extract_window_features(df, win_sec=win_sec)
-
-        if "Phase" not in df.columns:
-            continue
 
         mapped_phase = df["Phase"].map(map_phase_to_activity)
         valid_mask = mapped_phase.notna()
