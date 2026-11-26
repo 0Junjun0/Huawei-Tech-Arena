@@ -564,3 +564,20 @@ New zip: `submissions/robust_nxe_pg/` (verified: short-input tests pass, MET sam
 mean input duration (s) ~= (73 - probe score) x 150 (if the grader measures MET on the test inputs). Full sessions (~1900 s) -> ~60; 600 s chunks -> ~69; 300 s -> ~71; 120 s -> ~72.
 
 **Next submissions:** robust_nxe_pg (expected >= robust_nxe_p, more robust), then probe_len (information only, best-score ranking is unaffected), then robust_nxte_p if the probe says inputs are long (>= ~1200 s).
+
+<!-- Logged: 2026-11-26 (EXP-CLAUDE-04) -->
+### EXP-CLAUDE-04: our chunk-robust features + Fares ver3 physiology context (`bebe_combo_lite`)
+- **Leaderboard so far:** RF 73, bebe_time 67, robust_nxe_p 73, Fares' submissions 74 and 70.
+- **Fair comparison** (same chunk-augmented LightGBM, subject 5-fold, 2 seeds, `lab/run_fares_combo.py`), macro-F1:
+
+| features | full | 600 s | 300 s | 120 s | blend |
+|---|---|---|---|---|---|
+| ours (nxe) | 0.78 | 0.70 | 0.68 | 0.64 | 0.695 |
+| Fares ver3 `feature_matrix` | 0.73 | 0.71 | 0.70 | 0.66 | 0.698 |
+| both | 0.76 | 0.72 | 0.70 | 0.67 | 0.709 |
+| ours + Fares *light* (`lab/run_light.py`) | 0.76 | 0.71 | 0.70 | 0.67 | 0.707 |
+
+- Fares' value is almost all in the r2/8/24 context on his physiology channels (41 % of model gain); his window-stat block is 2 %. `fares_light` drops that block and the seen flags (same accuracy, ~half the time). Averaging three models instead: blend 0.714 but 3 inferences, not worth the speed.
+- **Submission `submissions/bebe_combo_lite/`:** nxe + fares_light features (643), robust_nxe_pg recipe (chunk + gain augmentation, logistic protocol gate, w (1,1.4,1), smooth 5). Fares' code is embedded as an isolated module.
+- **Checks (Python 3.13, from zip):** 1 row / 10 s / 30 s / 90 s / all-NaN / shuffled / BVP-only OK. Speed vs robust_nxe_pg: whole 15.7 vs 17.6, 600 s 18.4 vs 19.3, 300 s 19.0 vs 19.5 (per call on 600 s: nxe 7 ms, Fares 11 ms, ONNX 4 ms).
+- **Expected vs robust_nxe_pg on 5-10 min chunks:** +1.1 to +1.9 quality, -0.5 to -1.0 speed, net about +0.5 to +1. Worse if the grader sends whole sessions (full F1 0.76 vs 0.78).

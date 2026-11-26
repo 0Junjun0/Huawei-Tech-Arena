@@ -42,6 +42,29 @@ GATE = {gate}  # (ratio, alpha): input-level protocol gate, or None
 PROTO = {proto}  # logistic regression: P(input is an exercise session) from input aggregates, or None
 
 
+FARES_DIM = {fares_dim}  # >0: append Fares' ver3 features (isolated module below)
+_FARES = None
+#__FARES_SRC__
+
+
+def _fares_feats(tt, cols):
+    """Fares' feature_matrix per contiguous segment, laid on our 10 s grid (gaps -> zeros)."""
+    global _FARES
+    if _FARES is None:
+        import types
+        _FARES = types.ModuleType("_fares")
+        exec(compile(_FARES_SRC, "_fares", "exec"), _FARES.__dict__)
+    df = pd.DataFrame(cols, index=pd.DatetimeIndex(tt.view("datetime64[ns]")))
+    n_win = int(tt[-1] // WIN_NS - tt[0] // WIN_NS) + 1
+    out = np.zeros((n_win, FARES_DIM), dtype=np.float32)
+    for rows, ids, start, F in getattr(_FARES, _FARES_FN)(df):
+        off = int(start - tt[0] // WIN_NS)
+        m = min(len(F), n_win - off)
+        if m > 0:
+            out[off:off + m] = F[:m]
+    return out
+
+
 def _proto_agg(X):
     B = X[:, :17].astype(np.float64)
     B[:, :4] = np.log1p(np.abs(B[:, :4])); B[:, 13] = np.log1p(np.abs(B[:, 13]))
@@ -85,6 +108,15 @@ class TechArenaModel(ADM_Base):
 
     def _segment(self, tt, cols):
         _, X, _ = compute(_Frame(tt, cols), **FEAT_KW)
+        if FARES_DIM:
+            Xf = np.zeros((len(X), FARES_DIM), dtype=np.float32)
+            try:
+                F = _fares_feats(tt, cols)
+                n = min(len(F), len(X))
+                Xf[:n] = F[:n]
+            except Exception:
+                pass
+            X = np.hstack([X, Xf])
         P = np.asarray(self.session.run(None, {{self.input_name: X}})[self.prob_idx], dtype=np.float64)
         if PROTO is not None:
             pe = _proto_pe(X)
@@ -178,8 +210,15 @@ def main():
     keep = [i for i, r in enumerate(recs) if r["subject"] not in set(cfg.get("exclude_subjects", []))]
     train_sc = cfg.get("train_sc", ["full"])
     key = cfg.get("cache_key")
+    fares_dim = 0
     if key:
         CF = chunk_feats(recs, key, lambda d: compute(d, **feat_kw)[1], train_sc)
+        if cfg.get("fares"):
+            import fares_feats as _ff
+            CFf = chunk_feats(recs, cfg["fares"], _ff.fares_light if cfg.get("fares_light") else _ff.fares_feats, train_sc)
+            fares_dim = CFf[train_sc[0]][0][0][3].shape[1]
+            CF = {sc: [[(a, b, w0, np.hstack([X1, X2[:len(X1)]])) for (a, b, w0, X1), (_, _, _, X2) in zip(CF[sc][i], CFf[sc][i])]
+                       for i in range(len(recs))] for sc in train_sc}
         sw = cfg.get("sc_weight")
         if sw:
             X, y, sample_w = train_xy(recs, CF, keep, train_sc, sw)
@@ -225,8 +264,24 @@ def main():
     feats_src = (LAB / "feats.py").read_text()
     feats_src = feats_src.split('"""', 2)[2]  # drop module docstring
     feats_src = "\n".join(l for l in feats_src.splitlines() if not l.startswith(("import numpy", "import pandas")))
-    (d / f"{name}.py").write_text(TEMPLATE.format(feats=feats_src, feat_kw=repr(feat_kw), weights=list(cfg["weights"]),
-                                                  smooth=cfg["smooth"], gate=repr(tuple(cfg["gate"]) if cfg.get("gate") else None), proto=repr(proto)))
+    src = TEMPLATE.format(feats=feats_src, feat_kw=repr(feat_kw), weights=list(cfg["weights"]), fares_dim=fares_dim,
+                          smooth=cfg["smooth"], gate=repr(tuple(cfg["gate"]) if cfg.get("gate") else None), proto=repr(proto))
+    fsrc = ""
+    if fares_dim:
+        full = (LAB / "teammates" / "fares3.py").read_text()
+        body = full.split("\nclass TechArenaModel")[0].replace("from adm_base_class import ADM_Base\n", "")
+        body = body.replace("import onnxruntime as ort\n", "")
+        if cfg.get("fares_light"):
+            ff = (LAB / "fares_feats.py").read_text()
+            light = ff[ff.index("def fares_light_matrix"):ff.index("def fares_light(")].replace("F.", "")
+            body += "\n\n" + light + '''
+def light_segments(frame):
+    for rows, ids, start, section in recording_segments(frame):
+        grid = (section.index.as_unit("ns").asi8, start, ids)
+        yield rows, ids, start, fares_light_matrix(section, _grid=grid)
+'''
+        fsrc = "_FARES_SRC = " + repr(body) + "\n_FARES_FN = " + repr("light_segments" if cfg.get("fares_light") else "feature_segments")
+    (d / f"{name}.py").write_text(src.replace("#__FARES_SRC__", fsrc))
     (d / "config.json").write_text(json.dumps(cfg, indent=1))
     with zipfile.ZipFile(d / f"{name}.zip", "w", zipfile.ZIP_DEFLATED) as z:
         z.write(d / f"{name}.py", f"{name}.py")
