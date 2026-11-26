@@ -5,3 +5,14 @@ TechArena-Finland-2026/
 *.parquet
 submission.zip
 .DS_Store
+benchmark_reports/
+CATSA.zip
+CATSA/
+wearable_stress_submission.zip
+wearable_stress_model_files.zip
+wearable_stress_benchmark_evidence.zip
+participant_submission.zip
+participant_model_files.zip
+participant_benchmark_evidence.zip
+WESAD.zip
+PPG-DaLiA/
