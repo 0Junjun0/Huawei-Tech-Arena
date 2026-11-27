@@ -622,3 +622,11 @@ mean input duration (s) ~= (73 - probe score) x 150 (if the grader measures MET 
 - `probe_len` only measured the 50 timed runs (~30 min inputs). The quality score may come from different calls. For our own models the leaderboard matches the 5-10 min chunk simulation, not the whole-session one: bebe_time 0.60 (sim 600 s 0.63, whole 0.86), robust_nxe_p 0.675 (0.71 / 0.80), robust_lx_tuned 0.687 (0.68 / 0.71).
 - `submissions/probe_scorelen/` = robust_lx_tuned (74) with one change: an input spanning 12 min or more is answered with all Rest. Timing is unchanged (the model still runs).
 - Decode: 74 -> every scored input is shorter than 12 min (pieces); ~33-39 -> every scored input is a whole session, and the exact value gives the Rest share p of the hidden windows via F = 2p / (1 + p) / 3; in between -> a mix.
+
+<!-- Logged: 2026-11-27 (EXP-CLAUDE-08) -->
+### EXP-CLAUDE-08: `trio_student` - one model trained to copy the blend
+- `lab/run_distill.py`: LightGBM on the nxe features, target = alpha x true label + (1 - alpha) x out-of-fold blend probability (lx + nxe + Fares ver1), as weighted duplicated rows.
+- Subject-fold CV, whole sessions: blend 0.804; student alpha 1.0 (ordinary training) 0.808-0.812; alpha 0.5 0.811 (no smoothing); alpha 0.25 0.801; alpha 0 0.792. No accuracy gain on the bench, as expected: the student equals our single model.
+- Speed: same as robust_nxe_p (one feature pass, one ONNX pass), about 1 point better than `trio`.
+- Caveat: the blend's value is that its members behave differently on the hidden set. The student only sees training-like sessions, so it may not inherit that. Upload only if `trio` beats 74.
+- Built `submissions/trio_student/` (alpha 0.5, smooth 1, weights 1/1/1, no protocol gate); edge-case checks pass.
