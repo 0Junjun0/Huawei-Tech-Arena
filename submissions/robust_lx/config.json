@@ -1,0 +1,13 @@
+{
+ "feat_kw": {
+  "use_time": false,
+  "local": true,
+  "extras": true
+ },
+ "weights": [
+  1,
+  1,
+  1
+ ],
+ "smooth": 3
+}

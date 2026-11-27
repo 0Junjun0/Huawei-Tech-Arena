@@ -1,0 +1,1 @@
+lgb localx_rf  full full=0.703 skipstart=0.713 chunk600=0.675 chunk300=0.654 chunk180=0.627 chunk120=0.594 rand300=0.629 blend=0.656

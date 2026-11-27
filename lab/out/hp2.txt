@@ -1,0 +1,3 @@
+localx full {"colsample_bytree": 0.2} full=0.690 skipstart=0.698 chunk600=0.668 chunk300=0.645 chunk180=0.616 chunk120=0.589 rand300=0.614 blend=0.646
+localx full {"min_child_samples": 200} full=0.708 skipstart=0.720 chunk600=0.678 chunk300=0.656 chunk180=0.614 chunk120=0.598 rand300=0.623 blend=0.657
+localx full {"class_weight": null} full=0.688 skipstart=0.691 chunk600=0.661 chunk300=0.646 chunk180=0.611 chunk120=0.580 rand300=0.600 blend=0.639

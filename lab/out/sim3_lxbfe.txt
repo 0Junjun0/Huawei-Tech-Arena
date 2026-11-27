@@ -1,0 +1,1 @@
+lgb lxbfe      full full=0.750 skipstart=0.701 chunk600=0.629 chunk300=0.414 chunk180=0.297 chunk120=0.193 rand300=0.318 blend=0.472

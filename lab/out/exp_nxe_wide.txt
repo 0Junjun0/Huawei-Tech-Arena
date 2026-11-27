@@ -1,0 +1,1 @@
+nxe_wide nxe {"sw": 0.07, "train_sc": ["full", "chunk1200", "chunk600", "chunk300", "chunk180", "chunk120", "chunk90"]} full=0.780 skipstart=0.763 chunk600=0.696 chunk300=0.677 chunk180=0.650 chunk120=0.632 rand300=0.655 blend=0.693

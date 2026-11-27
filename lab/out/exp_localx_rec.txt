@@ -1,0 +1,4 @@
+localx_rec localx {"split": "recording", "sw": null, "train_sc": ["full"], "weights": [1, 1.8, 1.2], "smooth": 9} full=0.699 skipstart=0.713 chunk600=0.669 chunk300=0.656 chunk180=0.619 chunk120=0.594 rand300=0.627 blend=0.654
+localx_rec full per-12-rec-set F1: mean 0.698 sd 0.043 min 0.644 max 0.773
+localx_rec chunk600 per-12-rec-set F1: mean 0.669 sd 0.043 min 0.607 max 0.755
+localx_rec chunk300 per-12-rec-set F1: mean 0.653 sd 0.051 min 0.581 max 0.725

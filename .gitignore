@@ -5,3 +5,7 @@ TechArena-Finland-2026/
 *.parquet
 submission.zip
 .DS_Store
+.venv313/
+lab/cache/
+submissions/*/*.joblib
+submissions/*/*.npy

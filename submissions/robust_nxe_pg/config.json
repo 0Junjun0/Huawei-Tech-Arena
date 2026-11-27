@@ -1,0 +1,54 @@
+{
+ "cache_key": "nxe",
+ "feat_kw": {
+  "use_time": false,
+  "extras": true,
+  "edge": 30,
+  "inlen": true,
+  "lbase": [
+   31,
+   61,
+   121
+  ],
+  "fb": [
+   3,
+   9,
+   18,
+   36
+  ]
+ },
+ "train_sc": [
+  "full",
+  "chunk600",
+  "chunk300",
+  "chunk180",
+  "chunk120",
+  "gain_full",
+  "gain_chunk600",
+  "gain_chunk300",
+  "gain_chunk180",
+  "gain_chunk120"
+ ],
+ "sc_weight": {
+  "full": 1.0,
+  "chunk600": 0.1,
+  "chunk300": 0.1,
+  "chunk180": 0.1,
+  "chunk120": 0.1,
+  "gain_full": 0.1,
+  "gain_chunk600": 0.1,
+  "gain_chunk300": 0.1,
+  "gain_chunk180": 0.1,
+  "gain_chunk120": 0.1
+ },
+ "weights": [
+  1,
+  1.4,
+  1.0
+ ],
+ "smooth": 5,
+ "proto": {
+  "gamma": 1.0,
+  "C": 0.3
+ }
+}

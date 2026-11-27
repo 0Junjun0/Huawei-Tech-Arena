@@ -1,0 +1,4 @@
+nxe_rec nxe {"sw": 0.1, "split": "recording"} full=0.781 skipstart=0.762 chunk600=0.703 chunk300=0.668 chunk180=0.657 chunk120=0.632 rand300=0.634 blend=0.691
+nxe_rec full per-12-rec-set F1: mean 0.783 sd 0.033 min 0.727 max 0.834
+nxe_rec chunk600 per-12-rec-set F1: mean 0.706 sd 0.049 min 0.621 max 0.761
+nxe_rec chunk300 per-12-rec-set F1: mean 0.669 sd 0.055 min 0.578 max 0.741

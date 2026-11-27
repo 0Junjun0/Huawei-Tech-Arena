@@ -1,0 +1,14 @@
+RF           clean        set-mean 0.581 pooled 0.580
+RF           ffill        set-mean 0.581 pooled 0.580
+RF           ffill_bfill  set-mean 0.581 pooled 0.580
+RF           interp       set-mean 0.571 pooled 0.571
+RF           fill0        set-mean 0.230 pooled 0.230
+RF           no_ibi       set-mean 0.229 pooled 0.229
+RF           f32          set-mean 0.582 pooled 0.581
+bebe_time    clean        set-mean 0.842 pooled 0.844
+bebe_time    ffill        set-mean 0.832 pooled 0.834
+bebe_time    ffill_bfill  set-mean 0.832 pooled 0.834
+bebe_time    interp       set-mean 0.825 pooled 0.826
+bebe_time    fill0        set-mean 0.394 pooled 0.415
+bebe_time    no_ibi       set-mean 0.644 pooled 0.648
+bebe_time    f32          set-mean 0.842 pooled 0.844

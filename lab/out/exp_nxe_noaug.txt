@@ -1,0 +1,1 @@
+nxe_noaug nxe {"sw": null, "train_sc": ["full"]} full=0.811 skipstart=0.748 chunk600=0.635 chunk300=0.472 chunk180=0.309 chunk120=0.195 rand300=0.349 blend=0.503

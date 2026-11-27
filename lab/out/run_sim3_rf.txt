@@ -1,0 +1,2 @@
+RF-exact      full-train full=0.578 skipstart=0.590 chunk600=0.576 chunk300=0.572 chunk180=0.583 chunk120=0.582 rand300=0.577 blend=0.580
+RF-orig1.35   full-train full=0.564 skipstart=0.575 chunk600=0.563 chunk300=0.563 chunk180=0.568 chunk120=0.566 rand300=0.568 blend=0.567

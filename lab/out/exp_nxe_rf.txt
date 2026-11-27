@@ -1,0 +1,1 @@
+nxe_rf nxe {"sw": 0.1, "family": "rf"} full=0.728 skipstart=0.729 chunk600=0.657 chunk300=0.649 chunk180=0.629 chunk120=0.623 rand300=0.637 blend=0.665

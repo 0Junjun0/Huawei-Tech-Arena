@@ -1,0 +1,1 @@
+nxe_et nxe {"sw": 0.1, "family": "et"} full=0.711 skipstart=0.708 chunk600=0.650 chunk300=0.632 chunk180=0.606 chunk120=0.600 rand300=0.609 blend=0.645
