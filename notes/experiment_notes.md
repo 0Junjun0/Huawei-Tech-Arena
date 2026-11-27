@@ -592,3 +592,10 @@ mean input duration (s) ~= (73 - probe score) x 150 (if the grader measures MET 
 - **Public leaderboard (2026-11-27):** top 84, 82, 81; ranks 5-36 at 77-80; we are at 74 (~rank 62 of 110).
 - **Hidden set (from subject-info.csv):** STRESS S02 S04 f07 f08 f14, AEROBIC S11 S13 f06, ANAEROBIC S01 S15 S16 f10. Every connection-loss / wrong-placement / annotation session is hidden (6 of 12); the training set only has clean or early-ended ones.
 - **Next uploads:** `robust_lx_tuned` (purely local features; tests whether session context is what fails on the hidden set) and `ours_fares` (ours + Fares ver1 average, whole-session CV 0.800 vs 0.776 for ours alone, only 0.65 speed points slower).
+
+<!-- Logged: 2026-11-27 (EXP-CLAUDE-06) -->
+### EXP-CLAUDE-06: robust_lx_tuned scored 74; three-family blend `trio`
+- **Leaderboard:** `robust_lx_tuned` (purely local features, whole-session CV 0.70) = 74, implied test F1 ~0.687. Same as the session-aware models (CV 0.78-0.81, test ~0.68). On the hidden set local features hold their CV score; whole-session context adds nothing there.
+- **Stress weight sweep in CV** (subject folds): flat for every family between 1.4 and 2.5 (nxe 0.809 / 0.809 / 0.805, lx 0.700 / 0.702 / 0.699), so the leaderboard order is not explained by the Stress weight.
+- **`submissions/trio/`** (`lab/build_ensemble.py trio 1 0 1 1`): probability average of robust_nxe_pg, Fares ver1 and robust_lx_tuned. The local model's 121 features are exact columns of the nxe matrix, so it costs one extra ONNX pass (~5 ms over ours_fares). CV: lx+nxe+fares1 0.804, nxe+fares1 0.813, nxe 0.809. The reason to ship it is not CV: the three families all sit at ~0.68 on the hidden set and fail differently, so the blend is the hedge.
+- **Checks (Python 3.13, from zip):** edge cases OK; the local member inside the blend reproduces robust_lx_tuned row for row.

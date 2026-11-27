@@ -5,7 +5,10 @@ Members (each used exactly as submitted, trained on all data):
   r_ = RF     claudes-bebe submission/    (teammate RF)                            LB 73
   f_ = Fares  fares_ver1                  (HistGradientBoosting)                   LB 74 (most likely)
 
-usage: python lab/build_ensemble.py <name> <w_ours> <w_rf> <w_fares>
+  l_ = local  submissions/robust_lx_tuned (LightGBM on the purely local subset of our features) LB 74
+               (its 121 features are columns of ours, so it only costs one more ONNX pass; needs w_ours > 0)
+
+usage: python lab/build_ensemble.py <name> <w_ours> <w_rf> <w_fares> [<w_local>]
 """
 import sys, pathlib, zipfile
 import onnx
@@ -16,7 +19,10 @@ MEMBERS = {
     "o": (ROOT / "submissions/robust_nxe_pg/robust_nxe_pg.py", ROOT / "submissions/robust_nxe_pg/robust_nxe_pg.onnx"),
     "r": (ROOT / "lab/teammates/rf/submission_model.py", ROOT / "lab/teammates/rf/submission_model.onnx"),
     "f": (ROOT / "lab/teammates/fares1/submission_model.py", ROOT / "lab/teammates/fares1/submission_model.onnx"),
+    "l": (None, ROOT / "submissions/robust_lx_tuned/robust_lx_tuned.onnx"),
 }
+LOCAL_KW = dict(use_time=False, local=True, extras=True)
+LOCAL_W, LOCAL_SMOOTH = [1, 1.8, 1.2], 9
 
 TEMPLATE = r'''"""Team ensemble: ours (robust_nxe_pg) + teammate RF + Fares ver1, probability average per 10 s window.
 Each member's code is embedded unchanged and executed in its own namespace."""
@@ -36,6 +42,8 @@ for _k, _s in _SRC.items():
     _NS[_k] = _g
 
 WEIGHTS = {weights}
+L_NAMES = {lnames}
+L_W, L_SMOOTH = np.array({lw}, np.float64), {lsmooth}
 LABELS = np.array(["Rest", "Stress", "Activity"], dtype=object)
 W = 10_000_000_000
 
@@ -64,6 +72,7 @@ class TechArenaModel(ADM_Base):
         so.log_severity_level = 3
         self.session = ort.InferenceSession(str(onnx_file), sess_options=so, providers=["CPUExecutionProvider"])
         self.inputs = {{i.name: i.shape[-1] for i in self.session.get_inputs()}}
+        self.l_idx = None
         if "o" not in _NS:
             return
         o = _NS["o"]
@@ -72,8 +81,13 @@ class TechArenaModel(ADM_Base):
     # ---- members: each returns (n_win, 3) normalised scores on the 10 s grid of tt ----
     def _ours(self, df, tt, n_win, feeds):
         o = _NS["o"]
-        _, X, _ = o["compute"](df, **o["FEAT_KW"])
+        _, X, names = o["compute"](df, **o["FEAT_KW"])
         feeds["o_input"] = X[:n_win].astype(np.float32)
+        if WEIGHTS.get("l", 0) > 0:
+            if self.l_idx is None:
+                names = list(names)
+                self.l_idx = np.array([names.index(n) for n in L_NAMES])
+            feeds["l_input"] = feeds["o_input"][:, self.l_idx]
         def post(P):
             if self.o_proto is not None:
                 pe = o["_proto_pe"](X[:n_win])
@@ -118,7 +132,9 @@ class TechArenaModel(ADM_Base):
         for name, dim in self.inputs.items():  # members that failed still need a (dummy) feed
             if name not in feeds:
                 feeds[name] = np.zeros((1, dim), np.float32)
-        present = [k for k in ("o", "r", "f") if WEIGHTS.get(k, 0) > 0]
+        if "l_input" in feeds and "o" in posts:
+            posts["l"] = lambda P: _norm(_smooth(P, L_SMOOTH) * L_W)
+        present = [k for k in ("o", "r", "f", "l") if WEIGHTS.get(k, 0) > 0]
         outs = self.session.run([k + "_probabilities" for k in present], feeds)
         total = np.zeros((n_win, 3))
         for key, P in zip(present, outs):
@@ -192,13 +208,21 @@ def merged_onnx(keys):
 def main():
     name = sys.argv[1]
     wo, wr, wf = (float(x) for x in sys.argv[2:5])
-    w = {"o": wo, "r": wr, "f": wf}
+    w = {"o": wo, "r": wr, "f": wf, "l": float(sys.argv[5]) if len(sys.argv) > 5 else 0.0}
     keys = [k for k in MEMBERS if w[k] > 0]
-    src = {k: p.read_text() for k, (p, _) in MEMBERS.items() if k in keys}
+    assert w["l"] <= 0 or w["o"] > 0, "the local member reuses our feature matrix"
+    src = {k: p.read_text() for k, (p, _) in MEMBERS.items() if k in keys and p is not None}
+    lnames = []
+    if w["l"] > 0:
+        sys.path.insert(0, str(ROOT / "lab"))
+        import numpy as np, pandas as pd
+        from feats import compute
+        d = pd.DataFrame({c: [0.0] for c in ["BVP", "EDA", "HR", "IBI_dt", "IBI_duration", "Temperature"]}, index=pd.to_datetime(["2020-01-01"]))
+        lnames = list(compute(d, **LOCAL_KW)[2])
     # members import their base class themselves; the grader provides adm_base_class
     d = ROOT / "submissions" / name
     d.mkdir(parents=True, exist_ok=True)
-    (d / f"{name}.py").write_text(TEMPLATE.format(src=repr(src), weights=repr(w)))
+    (d / f"{name}.py").write_text(TEMPLATE.format(src=repr(src), weights=repr(w), lnames=repr(lnames), lw=repr(LOCAL_W), lsmooth=LOCAL_SMOOTH))
     onnx.save(merged_onnx(keys), str(d / f"{name}.onnx"))
     with zipfile.ZipFile(d / f"{name}.zip", "w", zipfile.ZIP_DEFLATED) as z:
         z.write(d / f"{name}.py", f"{name}.py"); z.write(d / f"{name}.onnx", f"{name}.onnx")
