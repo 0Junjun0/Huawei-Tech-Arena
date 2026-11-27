@@ -1,0 +1,34 @@
+{
+ "cache_key": "nopos",
+ "feat_kw": {
+  "use_time": false,
+  "extras": true,
+  "edge": 0,
+  "inlen": false,
+  "lbase": [
+   31,
+   61,
+   121
+  ],
+  "fb": [
+   3,
+   9,
+   18,
+   36
+  ]
+ },
+ "train_sc": [
+  "full",
+  "gain_full"
+ ],
+ "sc_weight": {
+  "full": 1.0,
+  "gain_full": 0.1
+ },
+ "weights": [
+  1,
+  1.4,
+  1.0
+ ],
+ "smooth": 5
+}

@@ -630,3 +630,21 @@ mean input duration (s) ~= (73 - probe score) x 150 (if the grader measures MET 
 - Speed: same as robust_nxe_p (one feature pass, one ONNX pass), about 1 point better than `trio`.
 - Caveat: the blend's value is that its members behave differently on the hidden set. The student only sees training-like sessions, so it may not inherit that. Upload only if `trio` beats 74.
 - Built `submissions/trio_student/` (alpha 0.5, smooth 1, weights 1/1/1, no protocol gate); edge-case checks pass.
+
+<!-- Logged: 2026-11-27 (EXP-CLAUDE-09) -->
+### EXP-CLAUDE-09: trio scored 72; position features are the likely culprit -> `nopos`
+- **trio = 72** (implied test F1 ~0.68 at 17.5 speed). Every non-time model lands at 0.675-0.694 on the hidden set.
+- **Hard benchmark** (`lab/hard.py`, `lab/run_hard.py`: whole sessions with crop / connection-loss gaps / NaN blocks / wrong placement / mixes): bebe_time still best (0.81) -> these faults do **not** reproduce the leaderboard.
+- **Grader preprocessing** (`lab/input_fill.py`: ffill, interpolate, fillna(0), dropna, resample): no transform reproduces the leaderboard order either.
+- **Position shortcut:** CV drop when removing features that encode where a window sits in the input:
+
+| features | whole-session CV | leaderboard-implied F1 |
+|---|---|---|
+| bebe_time (t_sec, t_frac, rec_len) | 0.86 | 0.60 |
+| nxe as shipped (log_n_win, edge_start/end; gate uses log length) | 0.80 | 0.675 |
+| nxe - position (`nopos`) | 0.76 | ? |
+| nxe - position - all session-relative | 0.73 | ? |
+| lx (local only) | 0.70 | 0.687 |
+
+  The more a model uses position, the bigger its CV -> leaderboard drop (-0.26, -0.125, -0.015). Session length and time-from-start identify protocol and phase in the training sessions; on the hidden sessions they mislead. The logistic protocol gate also used log(length).
+- **`submissions/nopos/`**: nxe features without position (265), no protocol gate, trained on full sessions + 0.1-weighted gain copies, smooth 5, weights (1, 1.4, 1). CV 0.76. Edge cases OK, MET ~15-21 ms. If the hypothesis holds it should land near 0.74-0.76 on the hidden set (77-80 total).
