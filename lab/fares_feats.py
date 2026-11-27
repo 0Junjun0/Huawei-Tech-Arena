@@ -64,3 +64,10 @@ def fares_light(df):
         if m > 0:
             out[off:off + m] = X[:m]
     return out
+
+
+def fares_local(df):
+    """fares_light without the whole-recording quantile block: physiology + r2/8/24 context only."""
+    X = fares_light(df)
+    nC = len(F.CONTEXT_CHANNELS)
+    return X[:, : X.shape[1] - 3 * nC]

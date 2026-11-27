@@ -61,7 +61,7 @@ def _fares_feats(tt, cols):
         off = int(start - tt[0] // WIN_NS)
         m = min(len(F), n_win - off)
         if m > 0:
-            out[off:off + m] = F[:m]
+            out[off:off + m] = F[:m, :FARES_DIM]
     return out
 
 
@@ -215,7 +215,8 @@ def main():
         CF = chunk_feats(recs, key, lambda d: compute(d, **feat_kw)[1], train_sc)
         if cfg.get("fares"):
             import fares_feats as _ff
-            CFf = chunk_feats(recs, cfg["fares"], _ff.fares_light if cfg.get("fares_light") else _ff.fares_feats, train_sc)
+            ffn = _ff.fares_local if cfg.get("fares_local") else (_ff.fares_light if cfg.get("fares_light") else _ff.fares_feats)
+            CFf = chunk_feats(recs, cfg["fares"], ffn, train_sc)
             fares_dim = CFf[train_sc[0]][0][0][3].shape[1]
             CF = {sc: [[(a, b, w0, np.hstack([X1, X2[:len(X1)]])) for (a, b, w0, X1), (_, _, _, X2) in zip(CF[sc][i], CFf[sc][i])]
                        for i in range(len(recs))] for sc in train_sc}

@@ -599,3 +599,20 @@ mean input duration (s) ~= (73 - probe score) x 150 (if the grader measures MET 
 - **Stress weight sweep in CV** (subject folds): flat for every family between 1.4 and 2.5 (nxe 0.809 / 0.809 / 0.805, lx 0.700 / 0.702 / 0.699), so the leaderboard order is not explained by the Stress weight.
 - **`submissions/trio/`** (`lab/build_ensemble.py trio 1 0 1 1`): probability average of robust_nxe_pg, Fares ver1 and robust_lx_tuned. The local model's 121 features are exact columns of the nxe matrix, so it costs one extra ONNX pass (~5 ms over ours_fares). CV: lx+nxe+fares1 0.804, nxe+fares1 0.813, nxe 0.809. The reason to ship it is not CV: the three families all sit at ~0.68 on the hidden set and fail differently, so the blend is the hedge.
 - **Checks (Python 3.13, from zip):** edge cases OK; the local member inside the blend reproduces robust_lx_tuned row for row.
+
+<!-- Logged: 2026-11-27 (EXP-CLAUDE-05) -->
+### EXP-CLAUDE-05: local-only whole-session model (`bebe_local`)
+- **probe_len scored 62** (73 - 11 speed): mean grader input ~27 min, i.e. whole sessions.
+- **Leaderboard vs whole-session CV don't line up.** Implied hidden-set F1 (LB minus estimated speed): bebe_time ~0.62 (CV 0.86), robust_nxe_p ~0.69 (CV 0.78), Fares ver1 ~0.71 (CV 0.78), RF ~0.72 (CV 0.58). The more a model leans on session-level context (time in session, session percentiles, protocol gate), the worse it transfers. Local-only models (RF, Fares ver1) transfer best.
+- **Whole-session CV** (`lab/run_local.py`, subject 5-fold, 3 seeds, full / session missing its start):
+
+| features | cols | full | skipstart |
+|---|---|---|---|
+| nxe (session-level, robust_nxe_p family) | 268 | 0.791 | 0.733 |
+| ours local only | 153 | 0.720 | 0.722 |
+| Fares local only (physiology + r2/8/24 context, no session quantiles) | 309 | 0.741 | 0.715 |
+| **ours local + Fares local** | 462 | 0.752 | 0.723 |
+
+  Session-level features lose 0.06 when the start is missing; local ones barely move.
+- **Submission `submissions/bebe_local/`:** ours local + Fares local, LightGBM on full sessions, smooth 9, w (1,1.4,1), no protocol gate, no time features. Python 3.13 checks all pass. MET whole session 27 ms (speed 18.2 vs 18.9 for robust_nxe_p).
+- Bet: if the LB rewards local models as above, this should beat RF/Fares ver1 (it is a strictly stronger local model in CV: 0.75 vs RF 0.58 / Fares-local 0.74).
