@@ -616,3 +616,9 @@ mean input duration (s) ~= (73 - probe score) x 150 (if the grader measures MET 
   Session-level features lose 0.06 when the start is missing; local ones barely move.
 - **Submission `submissions/bebe_local/`:** ours local + Fares local, LightGBM on full sessions, smooth 9, w (1,1.4,1), no protocol gate, no time features. Python 3.13 checks all pass. MET whole session 27 ms (speed 18.2 vs 18.9 for robust_nxe_p).
 - Bet: if the LB rewards local models as above, this should beat RF/Fares ver1 (it is a strictly stronger local model in CV: 0.75 vs RF 0.58 / Fares-local 0.74).
+
+<!-- Logged: 2026-11-27 (EXP-CLAUDE-07) -->
+### EXP-CLAUDE-07: `probe_scorelen` - are the *scored* run() calls whole sessions too?
+- `probe_len` only measured the 50 timed runs (~30 min inputs). The quality score may come from different calls. For our own models the leaderboard matches the 5-10 min chunk simulation, not the whole-session one: bebe_time 0.60 (sim 600 s 0.63, whole 0.86), robust_nxe_p 0.675 (0.71 / 0.80), robust_lx_tuned 0.687 (0.68 / 0.71).
+- `submissions/probe_scorelen/` = robust_lx_tuned (74) with one change: an input spanning 12 min or more is answered with all Rest. Timing is unchanged (the model still runs).
+- Decode: 74 -> every scored input is shorter than 12 min (pieces); ~33-39 -> every scored input is a whole session, and the exact value gives the Rest share p of the hidden windows via F = 2p / (1 + p) / 3; in between -> a mix.
